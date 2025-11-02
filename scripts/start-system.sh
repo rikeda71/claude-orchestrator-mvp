@@ -104,10 +104,18 @@ get_or_create_task() {
 
     if [[ -n "$task_id" ]]; then
         # タスクIDが指定された場合、存在確認
-        local task_file
-        task_file=$("$TASK_MANAGER" _get-task-file "$task_id" 2>/dev/null || echo "")
+        local task_file=""
 
-        if [[ -z "$task_file" ]] || [[ ! -f "$task_file" ]]; then
+        # 全ディレクトリを検索
+        for dir in queue in-progress reviews completed; do
+            local file_path="${TASK_DIR}/${dir}/${task_id}.json"
+            if [[ -f "$file_path" ]]; then
+                task_file="$file_path"
+                break
+            fi
+        done
+
+        if [[ -z "$task_file" ]]; then
             log_error "Task not found: ${task_id}"
             log_info "Available tasks:"
             "$TASK_MANAGER" list
@@ -120,7 +128,7 @@ get_or_create_task() {
         log_info "No task ID specified, creating default task..."
 
         local new_task_id
-        new_task_id=$("$TASK_MANAGER" create feature "Default orchestrator task" eng1 system | grep -o 'task-[0-9]*')
+        new_task_id=$("$TASK_MANAGER" create feature "Default orchestrator task" eng1 system | grep -o 'task-[^[:space:]]*')
 
         log_success "Created default task: ${new_task_id}"
         echo "$new_task_id"

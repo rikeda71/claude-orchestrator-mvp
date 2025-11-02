@@ -63,10 +63,18 @@ check_task_status() {
     local task_id="$1"
 
     # タスク情報を取得
-    local task_file
-    task_file=$("$TASK_MANAGER" _get-task-file "$task_id" 2>/dev/null || echo "")
+    local task_file=""
 
-    if [[ -z "$task_file" ]] || [[ ! -f "$task_file" ]]; then
+    # 全ディレクトリを検索
+    for dir in queue in-progress reviews completed; do
+        local file_path="${TASK_DIR}/${dir}/${task_id}.json"
+        if [[ -f "$file_path" ]]; then
+            task_file="$file_path"
+            break
+        fi
+    done
+
+    if [[ -z "$task_file" ]]; then
         log_warn "Task file not found: ${task_id}"
         return 0
     fi
