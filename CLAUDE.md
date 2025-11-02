@@ -380,7 +380,129 @@ Each session has an initialization prompt in `sessions/{role}/init-prompt.txt` t
 
 ## Testing and Validation
 
-### Manual Testing Workflow
+### Recommended Testing Process
+
+When developing new features or testing changes to the orchestrator system, follow this two-phase testing approach:
+
+#### Phase 1: No-Attach Testing (Automated Validation)
+
+**Purpose**: Verify basic functionality without manual observation. This allows you to quickly validate that messages are being sent/received and the system is operating correctly.
+
+**Process**:
+1. Start the system without attaching to tmux sessions
+2. Wait for the system to initialize and run
+3. Use capture commands to inspect output from each session
+4. Verify message delivery and system behavior programmatically
+
+**Example**:
+```bash
+# Start system with 3 engineers
+./scripts/start-system.sh --engineers 3 --instruction "ユーザー管理機能を実装してください：ユーザー登録、プロフィール編集、パスワード変更の3つのエンドポイントを作成してください"
+
+# Wait for initial activity (60 seconds)
+sleep 60
+
+# Check PjM output for task assignment
+./scripts/core/pane-manager.sh capture task-<task-id> 0 150 | tail -80
+
+# Check each engineer's response
+./scripts/core/pane-manager.sh capture task-<task-id> 1 150 | tail -80
+./scripts/core/pane-manager.sh capture task-<task-id> 2 150 | tail -80
+./scripts/core/pane-manager.sh capture task-<task-id> 3 150 | tail -80
+
+# Verify message format and delivery
+./scripts/core/pane-manager.sh capture task-<task-id> 0 500 | grep -E "\[Pane [0-9] \|"
+
+# Wait for progress reports (45 seconds)
+sleep 45
+
+# Check for design doc creation and approval flow
+./scripts/core/pane-manager.sh capture task-<task-id> 0 300 | tail -150
+
+# Verify engineers received approval messages
+./scripts/core/pane-manager.sh capture task-<task-id> 1 200 | grep -A 30 "\[Pane 0 | pjm\]" | tail -35
+
+# Clean up
+./scripts/stop-system.sh
+```
+
+**What to Verify**:
+- ✅ PjM correctly analyzes task complexity and assigns to appropriate number of engineers
+- ✅ All engineers receive initial task assignments
+- ✅ Engineers send PROGRESS messages with correct format `[Pane X | engY]`
+- ✅ PjM receives progress messages and responds appropriately
+- ✅ Design Doc approval workflow functions correctly
+- ✅ BLOCKER messages are handled appropriately
+- ✅ Message format is consistent across all communications
+- ✅ Language is consistent with user instruction (Japanese/English/Chinese)
+
+**Success Criteria**:
+- Message delivery rate: 100% (all messages sent are received)
+- All engineers start working on their assigned tasks
+- PjM provides feedback and approvals as expected
+- No errors in system logs
+
+#### Phase 2: Attach Testing (Manual Observation)
+
+**Purpose**: Observe the system in real-time to verify user experience and catch subtle issues that automated testing might miss.
+
+**When to Use**: Only after Phase 1 testing shows no major issues.
+
+**Process**:
+1. Start the system and manually attach to the tmux session
+2. Watch the interactions between PjM and engineers in real-time
+3. Verify the quality of communication and workflow
+4. Check for any UX issues or unexpected behaviors
+
+**Example**:
+```bash
+# Start system (Terminal.app will open automatically with tmux session)
+./scripts/start-system.sh --engineers 3 --instruction "実装タスク内容"
+
+# The system will automatically open a new Terminal window with tmux attached
+# Observe:
+# - Pane 0 (PjM): Task analysis, assignment, progress monitoring
+# - Pane 1-3 (Engineers): Design Doc creation, implementation, testing
+
+# Manually detach when done: Ctrl+B, then D
+# Or use: tmux detach
+
+# To re-attach later:
+tmux attach -t claude-task-<task-id>
+
+# Clean up
+./scripts/stop-system.sh
+```
+
+**What to Observe**:
+- PjM communication style (should be hardcore/concise)
+- Engineer responses and progress reporting
+- Design Doc approval workflow timing
+- Real-time feedback loops
+- Overall system responsiveness
+- Any lag or delays in message delivery
+
+**Success Criteria**:
+- Smooth communication flow without noticeable delays
+- Clear message formatting makes it easy to identify speakers
+- PjM maintains aggressive PM style consistently
+- Engineers demonstrate Principal Engineer behaviors
+- No obvious UX issues or confusing interactions
+
+#### Comparison
+
+| Aspect | Phase 1 (No-Attach) | Phase 2 (Attach) |
+|--------|---------------------|------------------|
+| Speed | Fast (automated) | Slower (manual) |
+| Coverage | High (programmatic checks) | Medium (observation) |
+| Use Case | Functional validation | UX validation |
+| When to Use | Always (first step) | After Phase 1 passes |
+| Output | Logs and metrics | Visual observation |
+| Good For | Regression testing, CI/CD | Final QA, demos |
+
+### Manual Testing Workflow (Legacy)
+
+For simple tests or quick validation:
 
 1. Start system: `./scripts/start-system.sh`
 2. Create test task: `./scripts/core/task-manager.sh create feature "test task" eng1 pjm`
@@ -434,7 +556,8 @@ When context usage reaches 95%:
 - File-based communication
 
 ### Future Phases
-- Phase 2: Add eng2, enable parallel development
+- Phase 2: Add engN, enable parallel development
 - Phase 3: Add reviewer, implement code review workflow
-- Phase 4: Add docs writer, full 5-session system
-- Phase 5: External integrations (GitHub, ClickUp, Slack)
+- Phase 4: Add docs writer, summarize system documentation
+- Phase 5: Add qa engineer, test system implementation result
+- Phase 6: External integrations (GitHub, ClickUp, Slack)
