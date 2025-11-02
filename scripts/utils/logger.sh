@@ -65,6 +65,11 @@ write_log() {
     shift 3
     local message="$*"
 
+    # ログディレクトリが初期化されていない場合はスキップ
+    if [[ -z "${SESSION_LOG_DIR:-}" ]] || [[ -z "${SYSTEM_LOG_DIR:-}" ]] || [[ -z "${TASK_LOG_DIR:-}" ]]; then
+        return 0
+    fi
+
     local log_file
     log_file=$(get_log_path "$log_type" "$log_name")
 
