@@ -165,6 +165,7 @@ EOF
     echo "  - Attach to eng1 session:  tmux attach -t ${TMUX_SESSION_PREFIX}-eng1"
     echo "  - View all sessions:       ./scripts/core/session-manager.sh list"
     echo "  - Create a task:           ./scripts/core/task-manager.sh create feature \"description\""
+    echo "  - Launch integrated viewer: ./scripts/start-viewer.sh"
     echo "  - Stop system:             ./scripts/stop-system.sh"
     echo ""
     log_info "System logs: ${LOG_DIR}"
@@ -195,6 +196,7 @@ create_sample_tasks() {
 #
 main() {
     local create_samples="false"
+    local with_viewer="false"
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
@@ -203,12 +205,17 @@ main() {
                 create_samples="true"
                 shift
                 ;;
+            --with-viewer)
+                with_viewer="true"
+                shift
+                ;;
             --help|-h)
                 cat <<EOF
 Usage: $0 [options]
 
 Options:
   --with-samples    Create sample tasks after startup
+  --with-viewer     Launch integrated viewer in new terminal window
   --help, -h        Show this help message
 
 Description:
@@ -218,15 +225,19 @@ Description:
   3. Setup communication pipes
   4. Start tmux sessions (pjm, eng1)
   5. Initialize logging
+  6. (Optional) Launch integrated viewer
 
 After startup, you can:
   - Attach to sessions using tmux
   - Create and manage tasks
   - Monitor system logs
+  - View all sessions in integrated viewer
 
 Examples:
-  $0                    # Start system normally
-  $0 --with-samples     # Start with sample tasks
+  $0                       # Start system normally
+  $0 --with-samples        # Start with sample tasks
+  $0 --with-viewer         # Start with integrated viewer
+  $0 --with-samples --with-viewer  # Start with both
 EOF
                 exit 0
                 ;;
@@ -258,6 +269,14 @@ EOF
 
     # サンプルタスクの作成（オプション）
     create_sample_tasks "$create_samples"
+
+    # ビューアの起動（オプション）
+    if [[ "$with_viewer" == "true" ]]; then
+        log_info "Launching integrated viewer..."
+        "${SCRIPT_DIR}/start-viewer.sh" &
+        sleep 1
+        log_success "Integrated viewer launched in new window"
+    fi
 
     # ウェルカムメッセージ
     show_welcome

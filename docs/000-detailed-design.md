@@ -345,6 +345,65 @@ pending (queue/) → in-progress (in-progress/) → review (reviews/) → comple
 - ログとセッション状態を必ず保存
 - グレースフルシャットダウンを重視
 
+#### 3.3.3 viewer.sh（統合ビューア）
+
+**目的**: 複数セッションの統合表示
+
+**主要機能**:
+- `create_viewer_session()`: ビューアセッション作成
+- `setup_viewer_layout()`: レイアウト設定（左30%: PjM、右70%: その他を縦分割）
+- `attach_sessions_to_panes()`: 各ペインに既存セッションを接続
+- `setup_viewer()`: 完全セットアップ
+- `attach_viewer()`: ビューアにアタッチ
+- `kill_viewer()`: ビューア終了
+
+**レイアウト構成**:
+```
+┌─────────────────────────────────────────┐
+│ claude-viewer                           │
+├──────────────┬──────────────────────────┤
+│              │  eng1                    │
+│   PjM        ├──────────────────────────┤
+│   (30%)      │  eng2 (if running)       │
+│              ├──────────────────────────┤
+│              │  reviewer (if running)   │
+│              ├──────────────────────────┤
+│              │  docs (if running)       │
+└──────────────┴──────────────────────────┘
+```
+
+**設計判断**:
+- 各セッションの独立性を保持（ビューアは表示のみ）
+- アクティブなセッションのみ表示
+- ペイン分割はtmuxのネイティブ機能を使用
+
+#### 3.3.4 start-viewer.sh
+
+**目的**: 統合ビューアを新しいターミナルウィンドウで起動
+
+**主要機能**:
+- `detect_terminal()`: OS/ターミナルタイプの自動検出
+- `open_in_terminal_app()`: macOS Terminal.app で起動
+- `open_in_iterm()`: macOS iTerm2 で起動
+- `open_in_gnome_terminal()`: Linux gnome-terminal で起動
+- `open_in_konsole()`: Linux konsole で起動
+- `open_in_xterm()`: Linux xterm で起動
+- `launch_viewer_window()`: 新しいウィンドウで起動
+- `launch_viewer_current()`: 現在のターミナルで起動
+
+**対応ターミナル**:
+- macOS: Terminal.app, iTerm2
+- Linux: gnome-terminal, konsole, xterm
+
+**設計判断**:
+- 環境を自動検出して適切なターミナルで起動
+- AppleScript (macOS) / コマンドライン (Linux) を使用
+- フォールバック: 手動起動のコマンドを表示
+
+**start-system.shとの統合**:
+- `--with-viewer` オプション追加
+- システム起動後に自動的にビューア起動可能
+
 ## 4. 設定ファイル
 
 ### 4.1 config/orchestrator.conf

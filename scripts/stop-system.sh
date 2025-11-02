@@ -111,6 +111,14 @@ save_session_logs() {
 stop_sessions() {
     log_info "Stopping sessions..."
 
+    # ビューアセッションの停止
+    local viewer_session="${TMUX_SESSION_PREFIX}-viewer"
+    if tmux_session_exists "$viewer_session"; then
+        log_info "Stopping viewer session"
+        tmux kill-session -t "$viewer_session" 2>/dev/null || true
+    fi
+
+    # 通常のセッションの停止
     for role in pjm eng1 eng2 reviewer docs; do
         local session_name
         session_name=$(get_session_name "$role")
