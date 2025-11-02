@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Engineerペイン初期化スクリプト
-# Claudeを起動し、Engineerとしての役割を開始
+# Reviewerペイン初期化スクリプト
+# Claudeを起動し、Reviewerとしての役割を開始
 #
 
 set -euo pipefail
@@ -19,7 +19,8 @@ if [[ -z "$TASK_ID" ]] || [[ -z "$ENGINEER_ROLE" ]] || [[ -z "$WORK_DIR" ]] || [
     exit 1
 fi
 
-# 作業ディレクトリに移動
+# 作業ディレクトリに移動（sessions/reviewer/）
+# Reviewer は orchestrator context で動作し、Engineer の worktree に直接アクセス
 cd "${WORK_DIR}"
 
 # 設定ファイルの読み込み
@@ -39,15 +40,20 @@ export ENGINEER_ROLE
 export WORK_DIR
 export PANE_ID
 export ORCHESTRATOR_ROOT
-export REVIEW_REQUIRED
-export NUM_ENGINEERS
-export ROLE="${ENGINEER_ROLE}"
 export TARGET_PROJECT_PATH
 export TARGET_PROJECT_MAIN_BRANCH
+export REVIEW_REQUIRED
+export NUM_ENGINEERS
+export ROLE="reviewer"
 
 # 初期プロンプトファイルを生成
-INIT_PROMPT_TEMPLATE="${ORCHESTRATOR_ROOT}/sessions/engineer/init-prompt-v0.2.0.txt"
-INIT_PROMPT_FILE="/tmp/claude-${ENGINEER_ROLE}-init-${TASK_ID}.txt"
+INIT_PROMPT_TEMPLATE="${ORCHESTRATOR_ROOT}/sessions/reviewer/init-prompt-v0.3.0.txt"
+INIT_PROMPT_FILE="/tmp/claude-reviewer-init-${TASK_ID}.txt"
+
+# テンプレートが存在しない場合は従来のinit-prompt.txtを使用
+if [[ ! -f "$INIT_PROMPT_TEMPLATE" ]]; then
+    INIT_PROMPT_TEMPLATE="${ORCHESTRATOR_ROOT}/sessions/reviewer/init-prompt.txt"
+fi
 
 envsubst < "${INIT_PROMPT_TEMPLATE}" > "${INIT_PROMPT_FILE}"
 

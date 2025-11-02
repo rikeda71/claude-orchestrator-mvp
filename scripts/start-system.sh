@@ -20,6 +20,36 @@ TASK_SESSION="${SCRIPT_DIR}/core/task-session.sh"
 TASK_MANAGER="${SCRIPT_DIR}/core/task-manager.sh"
 
 #
+# ベースブランチの自動検出
+#
+detect_base_branch() {
+    local project_path="${1:-}"
+
+    if [[ -z "$project_path" ]] || [[ ! -d "$project_path" ]]; then
+        echo "master"  # デフォルト
+        return
+    fi
+
+    # git リポジトリのデフォルトブランチを検出
+    local base_branch
+    base_branch=$(cd "$project_path" && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "")
+
+    # リモートのHEADが設定されていない場合、ローカルで main または master を探す
+    if [[ -z "$base_branch" ]]; then
+        if (cd "$project_path" && git rev-parse --verify main >/dev/null 2>&1); then
+            base_branch="main"
+        elif (cd "$project_path" && git rev-parse --verify master >/dev/null 2>&1); then
+            base_branch="master"
+        else
+            # どちらも存在しない場合は現在のブランチを使用
+            base_branch=$(cd "$project_path" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "master")
+        fi
+    fi
+
+    echo "$base_branch"
+}
+
+#
 # 前提条件のチェック
 #
 check_prerequisites() {
@@ -47,6 +77,15 @@ check_prerequisites() {
             log_warn "Please update config/target-project.conf with correct path"
         else
             log_success "Target project found: ${TARGET_PROJECT_PATH}"
+
+            # ベースブランチの自動検出
+            if [[ -z "${TARGET_PROJECT_MAIN_BRANCH:-}" ]]; then
+                TARGET_PROJECT_MAIN_BRANCH=$(detect_base_branch "$TARGET_PROJECT_PATH")
+                log_info "Auto-detected base branch: ${TARGET_PROJECT_MAIN_BRANCH}"
+                export TARGET_PROJECT_MAIN_BRANCH
+            else
+                log_debug "Using configured base branch: ${TARGET_PROJECT_MAIN_BRANCH}"
+            fi
         fi
     else
         log_warn "TARGET_PROJECT_PATH not configured"
@@ -345,6 +384,7 @@ main() {
     local auto_attach="true"
     local user_instruction=""
     local num_engineers="${DEFAULT_ENGINEERS:-1}"
+    local enable_reviewer="false"
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
@@ -352,6 +392,10 @@ main() {
             --engineers)
                 num_engineers="$2"
                 shift 2
+                ;;
+            --with-reviewer)
+                enable_reviewer="true"
+                shift
                 ;;
             --no-attach)
                 auto_attach="false"
@@ -371,6 +415,7 @@ Arguments:
 
 Options:
   --engineers N         エンジニア数を指定（デフォルト: ${DEFAULT_ENGINEERS:-1}, 最大: ${MAX_ENGINEERS:-10}）
+  --with-reviewer       Reviewerセッションを起動（Phase 3機能）
   --no-attach           セッションに自動アタッチしない
   --instruction, -i     PjMへの初期指示（必須）
   --help, -h            このヘルプメッセージを表示
@@ -448,6 +493,14 @@ EOF
 
     log_info "Starting system with ${num_engineers} engineer(s)..."
     export NUM_ENGINEERS="$num_engineers"
+    export ENABLE_REVIEWER="$enable_reviewer"
+
+    # REVIEW_REQUIRED設定とReviewerフラグの整合性チェック
+    if [[ "${REVIEW_REQUIRED:-false}" == "true" ]] && [[ "$enable_reviewer" != "true" ]]; then
+        log_warn "REVIEW_REQUIRED=true but --with-reviewer not specified."
+        log_warn "Review process will not work correctly."
+        log_warn "Consider adding --with-reviewer option."
+    fi
 
     # 起動シーケンス
     check_prerequisites
@@ -471,6 +524,19 @@ EOF
 
     # タスクセッション起動
     start_task_session "$task_id" "$user_instruction"
+
+    # Reviewerペイン作成（--with-reviewerが指定されている場合）
+    if [[ "$enable_reviewer" == "true" ]]; then
+        log_info "Creating reviewer pane..."
+        source "${SCRIPT_DIR}/core/task-session.sh"
+        create_reviewer_pane "$task_id"
+    fi
+
+    # 最終レイアウト調整: PjM 30% 左、Engineers/Reviewer 70% 右
+    local session_name="${TMUX_SESSION_PREFIX}-task-${task_id}"
+    log_debug "Applying final layout: PjM 30% left, Engineers 70% right..."
+    tmux select-layout -t "$session_name" main-vertical
+    tmux resize-pane -t "${session_name}.0" -x 30%
 
     # ウェルカムメッセージ
     show_welcome "$task_id"

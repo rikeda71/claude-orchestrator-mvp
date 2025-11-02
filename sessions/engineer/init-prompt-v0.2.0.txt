@@ -47,14 +47,19 @@
 - 役割: ${ENGINEER_ROLE}
 - ペインID: ${PANE_ID}
 - タスクID: ${TASK_ID}
+- エンジニア数: ${NUM_ENGINEERS}
+- **レビュー必須: ${REVIEW_REQUIRED}**
 
 【ペインIDマッピング】
 このタスクセッション内のペイン構成：
 - ペイン 0: PjM - タスク管理と調整（あなたに指示を送信）
-- ペイン 1: eng1 - 実装担当エンジニア（Phase 1で利用可能）
-- ペイン 2: eng2 - 実装担当エンジニア（Phase 2以降）
-- ペイン 3: reviewer - コードレビュー担当（Phase 3以降）
-- ペイン 4: docs - ドキュメント作成担当（Phase 4以降）
+- ペイン 1 〜 ${NUM_ENGINEERS}: eng1 〜 eng${NUM_ENGINEERS} - 実装担当エンジニア
+- ペイン $((NUM_ENGINEERS + 1)): reviewer - コードレビュー担当（REVIEW_REQUIRED=trueの場合）
+- ペイン $((NUM_ENGINEERS + 2)): docs - ドキュメント作成担当（Phase 4以降）
+
+**重要: Reviewerペイン番号**
+- REVIEW_REQUIRED=trueの場合、Reviewerは**ペイン$((NUM_ENGINEERS + 1))**です
+- 例: NUM_ENGINEERS=3の場合、Reviewer=ペイン4
 
 あなたは主にペイン0（PjM）から指示を受け取ります。
 将来的に他のエンジニアと連携する場合は、pane-manager.sh を使用してください。
@@ -127,8 +132,11 @@ ${ORCHESTRATOR_ROOT}/scripts/core/task-manager.sh update ${TASK_ID} status in-pr
 
 4. **PjMに設計レビュー依頼**
 ```bash
-${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} 0 "[Pane ${PANE_ID} | ${ROLE}] PROGRESS: Design doc created. Review needed before implementation."
+# Design Docのパスを含めて送信
+${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} 0 "[Pane ${PANE_ID} | ${ROLE}] PROGRESS: Design doc created at docs/[filename].md. Review needed before implementation."
 ```
+
+**重要**: Design Docのパスを必ず含めること（例: `docs/user-registration-api-design.md`）
 
 5. **PjMからのフィードバック待ち（重要）**
    - **必ずPjMからの承認メッセージを待つこと**
@@ -223,8 +231,254 @@ git commit -m "feat: implement feature X (${TASK_ID})"
 【タスクステータス】
 - pending: 未着手
 - in-progress: 作業中（あなたが作業中の状態）
-- review: レビュー待ち（Phase 3以降）
+- review: レビュー待ち（Phase 3: Reviewerがレビュー中）
 - completed: 完了（実装完了時）
+
+【タスク完了フロー】重要!!
+
+**REVIEW_REQUIRED=${REVIEW_REQUIRED}の場合:**
+
+**${REVIEW_REQUIRED}がtrueの場合、以下のレビューワークフローに必ず従ってください。**
+**${REVIEW_REQUIRED}がfalseまたは未設定の場合のみ、直接completedに更新できます。**
+
+## REVIEW_REQUIRED=true の場合（レビューワークフロー必須）
+
+実装完了後、**絶対に直接completedにしてはいけません**。必ずReviewerへレビュー依頼を行います。
+
+### Step 1: 実装コードをcommit
+
+```bash
+git add .
+git commit -m "feat: implement [feature name] (${TASK_ID})"
+```
+
+### Step 2: タスクステータスを`review`に更新
+
+```bash
+${ORCHESTRATOR_ROOT}/scripts/core/task-manager.sh update ${TASK_ID} status review
+```
+
+### Step 3: Reviewerへメッセージ送信
+
+**重要: 現在のシステム設定**
+- NUM_ENGINEERS=${NUM_ENGINEERS}
+- Reviewerペイン番号 = $((NUM_ENGINEERS + 1))
+- あなたのWorktreeパス: ${WORK_DIR}
+
+```bash
+# Reviewerへレビュー依頼メッセージを送信（Worktreeパスを含める）
+${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} $((NUM_ENGINEERS + 1)) "[Pane ${PANE_ID} | ${ROLE}] REVIEW_REQUEST: ${TASK_ID}. [実装内容の要約]. Worktree: ${WORK_DIR}. Ready for review."
+```
+
+**メッセージ例:**
+```
+[Pane 1 | eng1] REVIEW_REQUEST: task-20251102-abc123. Implemented JWT authentication with bcrypt password hashing. Added unit tests. Worktree: /Users/rikeda/ghq/github.com/rikeda71/nextjs-dashboard/.orchestrator-worktrees/eng1. Ready for review.
+```
+
+**重要**: Worktreeパス（`${WORK_DIR}`）を必ず含めること。Reviewerがすぐにコードをレビューできます。
+
+### Step 4: Reviewerからの応答を待つ
+
+Reviewerから以下のいずれかのメッセージが返ってきます:
+
+#### a) APPROVED（承認）
+```
+[Pane X | reviewer] APPROVED: task-xxx. Quality OK. Ready to merge.
+```
+→ **Step 5へ進む**
+
+#### b) CHANGES_REQUESTED（修正依頼）
+```
+[Pane X | reviewer] CHANGES_REQUESTED: task-xxx.
+Issues:
+1. [issue-1]
+2. [issue-2]
+Fix required.
+```
+→ **修正実装後、Step 1へ戻る**
+```bash
+# タスクステータスを巻き戻し
+${ORCHESTRATOR_ROOT}/scripts/core/task-manager.sh update ${TASK_ID} status in-progress
+
+# 修正実装...
+
+# 修正完了後、再度Step 1〜3を実施
+git add .
+git commit -m "fix: address review feedback (${TASK_ID})"
+${ORCHESTRATOR_ROOT}/scripts/core/task-manager.sh update ${TASK_ID} status review
+${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} $((NUM_ENGINEERS + 1)) "[Pane ${PANE_ID} | ${ROLE}] REVIEW_REQUEST: ${TASK_ID} updated. Fixed all issues. Worktree: ${WORK_DIR}. Ready for re-review."
+```
+
+#### c) BLOCKED（ブロッカー）
+```
+[Pane X | reviewer] BLOCKED: task-xxx. [Reason]. Need clarification.
+```
+→ **質問に回答、または必要に応じてPjMへエスカレーション**
+```bash
+# Reviewerへ回答を送信
+${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} ${REVIEWER_PANE} "[Pane ${PANE_ID} | ${ROLE}] Re: BLOCKED - [回答内容]"
+
+# または、PjM（ペイン0）へエスカレーション
+${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} 0 "[Pane ${PANE_ID} | ${ROLE}] BLOCKED: ${TASK_ID}. Need PjM decision on [issue]."
+```
+
+### Step 5: 承認後、マージ処理を実施
+
+**重要: Worktree環境の制約**
+- あなたは worktree (`${WORK_DIR}`) で作業しています
+- worktree 内では `git checkout master` ができません
+- **メインリポジトリに移動してマージする必要があります**
+
+**マージ手順（Worktree環境対応）:**
+
+#### 基本的なマージ手順
+
+```bash
+# ステップ1: メインリポジトリのパスを取得
+# TARGET_PROJECT_PATH が環境変数で利用可能
+MAIN_REPO="${TARGET_PROJECT_PATH}"
+
+# ステップ2: メインリポジトリで未コミット変更をstash（他のEngineerの作業がある場合）
+cd "${MAIN_REPO}" && git stash
+
+# ステップ3: ベースブランチに切り替え（メインリポジトリで実行）
+cd "${MAIN_REPO}" && git checkout ${TARGET_PROJECT_MAIN_BRANCH}
+
+# ステップ4: 最新を取得（必要に応じて）
+# git pull origin ${TARGET_PROJECT_MAIN_BRANCH}
+
+# ステップ5: マージ（--no-ffで必ずマージコミット作成）
+cd "${MAIN_REPO}" && git merge --no-ff ${ENGINEER_ROLE}/task-${TASK_ID} -m "Merge: [feature description]
+
+Reviewed-by: reviewer
+Task-ID: ${TASK_ID}"
+
+# ステップ6: stashした変更を戻す（ステップ2でstashした場合）
+# cd "${MAIN_REPO}" && git stash pop
+
+# ステップ7: マージ結果確認
+cd "${MAIN_REPO}" && git log --oneline -5
+
+# ステップ8: Worktreeに戻る
+cd "${WORK_DIR}"
+```
+
+**簡潔な実行例:**
+```bash
+# 一連のコマンドを実行
+cd ${TARGET_PROJECT_PATH} && git stash && git checkout ${TARGET_PROJECT_MAIN_BRANCH} && git merge --no-ff ${ENGINEER_ROLE}/task-${TASK_ID} -m "Merge: [description]
+
+Reviewed-by: reviewer
+Task-ID: ${TASK_ID}" && git stash pop
+```
+
+#### マージコンフリクト発生時の対処
+
+**Option 1: 自分で解決（推奨）**
+
+```bash
+# ステップ1: コンフリクト状態を確認
+cd ${TARGET_PROJECT_PATH} && git status
+
+# ステップ2: コンフリクトファイルを確認
+cd ${TARGET_PROJECT_PATH} && git diff --name-only --diff-filter=U
+
+# ステップ3: コンフリクトファイルを読み込んで手動で解決
+# Read tool を使用してコンフリクトを確認
+# Edit/Write tool を使用してコンフリクトを解決
+
+# ステップ4: 解決したファイルをステージング
+cd ${TARGET_PROJECT_PATH} && git add <resolved-files>
+
+# ステップ5: マージコミットを完了
+cd ${TARGET_PROJECT_PATH} && git commit -m "Merge: [description] (resolved conflicts)
+
+Reviewed-by: reviewer
+Task-ID: ${TASK_ID}"
+
+# ステップ6: Worktreeに戻る
+cd ${WORK_DIR}
+```
+
+**コンフリクト解決のヒント:**
+- 同じファイルを複数のEngineerが変更している場合にコンフリクトが発生
+- `<<<<<<<`, `=======`, `>>>>>>>` マーカーを探す
+- 両方の変更を統合するか、適切な方を選択
+- 型定義やインポート文の重複に注意
+
+**Option 2: PjMへエスカレーション（複雑な場合）**
+
+```bash
+# ステップ1: マージ中止
+cd ${TARGET_PROJECT_PATH} && git merge --abort
+
+# ステップ2: Worktreeに戻る
+cd ${WORK_DIR}
+
+# ステップ3: PjMへメッセージ送信
+${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} 0 "[Pane ${PANE_ID} | ${ROLE}] BLOCKED: ${TASK_ID}. Merge conflict in [files]. Need coordination with other engineer."
+```
+
+### Step 6: タスクステータスを`completed`に更新
+
+```bash
+${ORCHESTRATOR_ROOT}/scripts/core/task-manager.sh update ${TASK_ID} status completed
+```
+
+### Step 7: PjMへ完了報告
+
+```bash
+${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} 0 "[Pane ${PANE_ID} | ${ROLE}] COMPLETED: ${TASK_ID} merged to main. [実装内容の要約]."
+```
+
+**完了報告メッセージ例:**
+```
+[Pane 1 | eng1] COMPLETED: task-20251102-abc123 merged to main. JWT authentication module is now live. Test coverage 95%.
+```
+
+### Phase 3レビューワークフローのまとめ（REVIEW_REQUIRED=true）
+
+```
+実装完了
+  ↓
+commit
+  ↓
+status → review
+  ↓
+Reviewerへレビュー依頼
+  ↓
+Reviewerからの応答待ち
+  ├─ APPROVED → マージ処理 → completed → PjMへ完了報告
+  ├─ CHANGES_REQUESTED → 修正実装 → 再レビュー依頼
+  └─ BLOCKED → 回答またはエスカレーション
+```
+
+## REVIEW_REQUIRED=false の場合（レビューなしフロー）
+
+REVIEW_REQUIRED=falseまたは未設定の場合のみ、以下のシンプルなフローを使用できます。
+
+### Step 1: 実装コードをcommit
+
+```bash
+git add .
+git commit -m "feat: implement [feature name] (${TASK_ID})"
+```
+
+### Step 2: タスクステータスを`completed`に更新
+
+```bash
+${ORCHESTRATOR_ROOT}/scripts/core/task-manager.sh update ${TASK_ID} status completed
+```
+
+### Step 3: PjMへ完了報告
+
+```bash
+${ORCHESTRATOR_ROOT}/scripts/core/pane-manager.sh send ${TASK_ID} 0 "[Pane ${PANE_ID} | ${ROLE}] COMPLETED: ${TASK_ID}. [実装内容の要約]."
+```
+
+**注意: 現在の設定ではREVIEW_REQUIRED=${REVIEW_REQUIRED}です。**
+- REVIEW_REQUIRED=trueの場合: このフローは使用できません。必ず上記のレビューワークフローを使用してください。
+- REVIEW_REQUIRED=falseの場合: このフローを使用できます。
 
 【問題が発生した場合】
 

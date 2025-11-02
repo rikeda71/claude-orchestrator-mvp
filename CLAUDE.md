@@ -319,11 +319,20 @@ json_set "$file" '.field' "$value"
 
 2. **config/target-project.conf** - Target project configuration:
    - `TARGET_PROJECT_PATH`: Path to project being managed
-   - `TARGET_PROJECT_MAIN_BRANCH`: Main branch name
+   - `TARGET_PROJECT_MAIN_BRANCH`: Main branch name (auto-detected if not set)
    - `ENG1_BRANCH_PREFIX`/`ENG2_BRANCH_PREFIX`: Branch naming patterns
    - `REVIEW_REQUIRED`: Whether code review is mandatory
    - `AUTO_MERGE_ENABLED`: Auto-merge after approval
    - `AUTO_PUSH_ENABLED`: Auto-push to remote
+
+**Base Branch Auto-Detection:**
+The system automatically detects the base branch when `TARGET_PROJECT_MAIN_BRANCH` is not configured:
+1. Checks `git symbolic-ref refs/remotes/origin/HEAD` for remote default branch
+2. Falls back to checking for `main` branch locally
+3. Falls back to checking for `master` branch locally
+4. Uses current branch as last resort
+
+This ensures the system works with any project regardless of whether it uses `main`, `master`, or custom branch names.
 
 ### Directory Structure
 
