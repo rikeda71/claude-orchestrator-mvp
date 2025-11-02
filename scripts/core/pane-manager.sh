@@ -90,7 +90,6 @@ add_pane() {
     if [[ ! -d "$workdir" ]]; then
         log_info "Creating ${role} worktree..."
         mkdir -p "$workdir"
-        # TODO: git worktree addの実装（Phase 2以降）
     fi
 
     # ペイン追加（水平分割）

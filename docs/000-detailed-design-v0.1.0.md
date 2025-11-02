@@ -1,5 +1,7 @@
 # Claude Orchestrator 詳細設計書
 
+> ⚠️ **注意**: このドキュメントはv0.1.0の詳細設計書です。v0.2.0以降は `docs/001-new-architecture.md` および `docs/003-target-project-integration-fix.md` を参照してください。
+
 ## ドキュメント情報
 
 - **作成日**: 2025-11-02

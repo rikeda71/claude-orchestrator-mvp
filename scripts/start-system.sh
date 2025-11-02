@@ -80,8 +80,6 @@ init_directories() {
 
     # エンジニア用ワークツリーディレクトリ
     # Note: eng1/eng2ディレクトリはgit worktree addで自動作成されるため、ここでは作成しない
-    # ensure_dir "${WORKTREE_BASE}/eng1"
-    # ensure_dir "${WORKTREE_BASE}/eng2"
 
     log_success "Directory structure initialized"
 }
