@@ -187,18 +187,10 @@ update_task_field() {
         die "Task not found: ${task_id}"
     fi
 
-    # ロック取得
-    local lockfile="${task_file}.lock"
-    acquire_lock "$lockfile" 10 200
-
     # フィールドの更新
     local tmp_file="${task_file}.tmp"
     jq --arg val "$value" ".${field} = \$val | .updated_at = \"$(timestamp)\"" "$task_file" > "$tmp_file"
     mv "$tmp_file" "$task_file"
-
-    # ロック解放
-    release_lock 200
-    rm -f "$lockfile"
 
     log_info "Task updated: ${task_id} (${field} = ${value})"
     log_task "$task_id" "INFO" "Field updated: ${field} = ${value}"
@@ -238,10 +230,6 @@ update_task_status() {
     local new_file
     new_file=$(get_task_file_path "$task_id" "$new_status")
 
-    # ロック取得
-    local lockfile="${current_file}.lock"
-    acquire_lock "$lockfile" 10 200
-
     # ステータスの更新
     local tmp_file="${current_file}.tmp"
     jq --arg status "$new_status" '.status = $status | .updated_at = "'"$(timestamp)"'"' "$current_file" > "$tmp_file"
@@ -249,10 +237,6 @@ update_task_status() {
     # ファイルの移動
     mv "$tmp_file" "$new_file"
     rm -f "$current_file"
-
-    # ロック解放
-    release_lock 200
-    rm -f "$lockfile"
 
     log_success "Task status updated: ${task_id} (${current_status} -> ${new_status})"
     log_task "$task_id" "INFO" "Status changed: ${current_status} -> ${new_status}"
@@ -290,16 +274,8 @@ delete_task() {
         die "Task not found: ${task_id}"
     fi
 
-    # ロック取得
-    local lockfile="${task_file}.lock"
-    acquire_lock "$lockfile" 10 200
-
     # ファイルの削除
     rm -f "$task_file"
-
-    # ロック解放
-    release_lock 200
-    rm -f "$lockfile"
 
     log_info "Task deleted: ${task_id}"
     log_task "$task_id" "INFO" "Task deleted"
@@ -320,10 +296,6 @@ add_task_comment() {
         die "Task not found: ${task_id}"
     fi
 
-    # ロック取得
-    local lockfile="${task_file}.lock"
-    acquire_lock "$lockfile" 10 200
-
     # コメントの追加
     local tmp_file="${task_file}.tmp"
     local comment_entry=$(jq -n \
@@ -334,10 +306,6 @@ add_task_comment() {
 
     jq ".review_notes += [$comment_entry] | .updated_at = \"$(timestamp)\"" "$task_file" > "$tmp_file"
     mv "$tmp_file" "$task_file"
-
-    # ロック解放
-    release_lock 200
-    rm -f "$lockfile"
 
     log_info "Comment added to task: ${task_id}"
     log_task "$task_id" "INFO" "Comment added by ${author}: ${comment}"

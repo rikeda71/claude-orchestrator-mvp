@@ -34,8 +34,12 @@ send_to_pane() {
 
     log_debug "Sending message to pane ${pane_id}: ${message}"
 
-    # メッセージ送信
-    tmux send-keys -t "${session_name}.${pane_id}" "$message" C-m
+    # メッセージをClaude Codeのプロンプトに入力
+    tmux send-keys -t "${session_name}.${pane_id}" "$message"
+
+    # 少し待機してからEnterキーを送信
+    sleep 0.5
+    tmux send-keys -t "${session_name}.${pane_id}" C-m
 
     log_success "Message sent to pane ${pane_id}"
 }

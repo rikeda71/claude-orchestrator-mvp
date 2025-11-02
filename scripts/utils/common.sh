@@ -59,7 +59,17 @@ load_config() {
     PIPE_DIR="${PIPE_DIR:-$DEFAULT_PIPE_DIR}"
     LOG_DIR="${LOG_DIR:-$DEFAULT_LOG_DIR}"
     TASK_DIR="${TASK_DIR:-$DEFAULT_TASK_DIR}"
-    WORKTREE_BASE="${WORKTREE_BASE:-$DEFAULT_WORKTREE_BASE}"
+
+    # TARGET_PROJECT_PATHが設定されている場合、WORKTREE_BASEを調整
+    if [[ -n "${TARGET_PROJECT_PATH:-}" ]] && [[ -d "${TARGET_PROJECT_PATH}" ]]; then
+        # Target projectが存在する場合、そのプロジェクト内にworktreeを作成
+        if [[ -z "${WORKTREE_BASE:-}" ]]; then
+            WORKTREE_BASE="${TARGET_PROJECT_PATH}/.orchestrator-worktrees"
+        fi
+    else
+        # Target projectがない場合、orchestrator内のworktreeを使用
+        WORKTREE_BASE="${WORKTREE_BASE:-$DEFAULT_WORKTREE_BASE}"
+    fi
 }
 
 #
@@ -113,29 +123,6 @@ check_required_commands() {
     if [[ ${#missing_commands[@]} -gt 0 ]]; then
         die "Required commands not found: ${missing_commands[*]}"
     fi
-}
-
-#
-# ファイルロック（flock使用）
-#
-acquire_lock() {
-    local lockfile="$1"
-    local timeout="${2:-10}"
-    local fd="${3:-200}"
-
-    eval "exec ${fd}>\"${lockfile}\""
-
-    if ! flock -w "$timeout" "$fd"; then
-        die "Failed to acquire lock: ${lockfile}"
-    fi
-
-    log_debug "Lock acquired: ${lockfile}"
-}
-
-release_lock() {
-    local fd="${1:-200}"
-    eval "exec ${fd}>&-"
-    log_debug "Lock released"
 }
 
 #

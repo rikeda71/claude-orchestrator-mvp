@@ -60,6 +60,7 @@ get_pane_workdir() {
 #
 create_task_session() {
     local task_id="$1"
+    local user_instruction="$2"
     local session_name
     session_name=$(get_task_session_name "$task_id")
     local window_name
@@ -78,7 +79,7 @@ create_task_session() {
     log_success "Task session created: ${session_name}"
 
     # PjMペイン（ペイン0）の設定
-    setup_pjm_pane "$session_name" "$task_id"
+    setup_pjm_pane "$session_name" "$task_id" "$user_instruction"
 
     # eng1ペイン（ペイン1）の作成
     create_eng1_pane "$session_name" "$task_id"
@@ -92,6 +93,7 @@ create_task_session() {
 setup_pjm_pane() {
     local session_name="$1"
     local task_id="$2"
+    local user_instruction="$3"
     local pjm_workdir
     pjm_workdir=$(get_pane_workdir "pjm")
 
@@ -103,15 +105,79 @@ setup_pjm_pane() {
     # 環境変数設定
     tmux send-keys -t "${session_name}.0" "export TASK_ID=${task_id}" C-m
     tmux send-keys -t "${session_name}.0" "export ORCHESTRATOR_ROOT=${ORCHESTRATOR_ROOT}" C-m
+    tmux send-keys -t "${session_name}.0" "export USER_INSTRUCTION='${user_instruction}'" C-m
 
-    # Claudeを起動（通常モード）
-    log_debug "Starting Claude in PjM pane (normal mode)..."
-    tmux send-keys -t "${session_name}.0" "claude" C-m
+    # 初期プロンプトを準備（変数展開）
+    local init_prompt_template="${ORCHESTRATOR_ROOT}/sessions/pjm/init-prompt-v0.2.0.txt"
+    local init_prompt_file="/tmp/claude-pjm-init-${task_id}.txt"
 
-    # 少し待機
-    sleep 1
+    # 環境変数を使って初期プロンプトを生成
+    TASK_ID="${task_id}" \
+    ORCHESTRATOR_ROOT="${ORCHESTRATOR_ROOT}" \
+    USER_INSTRUCTION="${user_instruction}" \
+    envsubst < "${init_prompt_template}" > "${init_prompt_file}"
+
+    # Claudeを起動（自動実行モード）with初期プロンプト
+    log_debug "Starting Claude in PjM pane (auto-execution mode) with init prompt..."
+    tmux send-keys -t "${session_name}.0" "claude --dangerously-skip-permissions @${init_prompt_file}" C-m
 
     log_debug "PjM pane setup complete"
+}
+
+#
+# Git worktreeの作成
+#
+create_git_worktree() {
+    local role="$1"
+    local task_id="$2"
+    local worktree_path="$3"
+
+    # Target projectのメインブランチを確認
+    local main_branch="${TARGET_PROJECT_MAIN_BRANCH:-main}"
+
+    # ブランチ名を生成
+    local branch_prefix
+    case "$role" in
+        eng1)
+            branch_prefix="${ENG1_BRANCH_PREFIX:-eng1/feature}"
+            ;;
+        eng2)
+            branch_prefix="${ENG2_BRANCH_PREFIX:-eng2/feature}"
+            ;;
+        *)
+            log_error "Unknown role: ${role}"
+            return 1
+            ;;
+    esac
+
+    local branch_name="${branch_prefix}/${task_id}"
+
+    log_info "Creating git worktree: ${worktree_path}"
+    log_debug "Branch: ${branch_name}"
+    log_debug "Base: ${main_branch}"
+
+    # Target projectディレクトリに移動
+    local original_dir
+    original_dir=$(pwd)
+    cd "${TARGET_PROJECT_PATH}"
+
+    # Worktreeを作成（ブランチも同時に作成）
+    if git worktree add -b "$branch_name" "$worktree_path" "$main_branch" 2>/dev/null; then
+        log_success "Git worktree created: ${worktree_path}"
+    else
+        # ブランチが既に存在する場合
+        log_warn "Branch ${branch_name} already exists, using existing branch"
+        if git worktree add "$worktree_path" "$branch_name" 2>/dev/null; then
+            log_success "Git worktree created with existing branch: ${worktree_path}"
+        else
+            log_error "Failed to create worktree"
+            cd "$original_dir"
+            return 1
+        fi
+    fi
+
+    # 元のディレクトリに戻る
+    cd "$original_dir"
 }
 
 #
@@ -130,9 +196,19 @@ create_eng1_pane() {
 
     # eng1ワークツリーディレクトリの確認・作成
     if [[ ! -d "$eng1_workdir" ]]; then
-        log_info "Creating eng1 worktree..."
-        mkdir -p "$eng1_workdir"
-        # TODO: git worktree addの実装（Phase 2以降）
+        log_info "Creating eng1 worktree for task: ${task_id}..."
+
+        if [[ -n "${TARGET_PROJECT_PATH:-}" ]] && [[ -d "${TARGET_PROJECT_PATH}" ]]; then
+            # Target projectのgit worktreeを作成
+            if ! create_git_worktree "eng1" "$task_id" "$eng1_workdir"; then
+                log_error "Failed to create git worktree, aborting"
+                return 1
+            fi
+        else
+            # Standalone mode: 単純なディレクトリ作成
+            mkdir -p "$eng1_workdir"
+            log_warn "No target project configured, working in standalone mode"
+        fi
     fi
 
     # 作業ディレクトリへ移動
@@ -143,10 +219,23 @@ create_eng1_pane() {
     tmux send-keys -t "${session_name}.1" "export ENGINEER_ROLE=eng1" C-m
     tmux send-keys -t "${session_name}.1" "export WORK_DIR=${eng1_workdir}" C-m
     tmux send-keys -t "${session_name}.1" "export PANE_ID=1" C-m
+    tmux send-keys -t "${session_name}.1" "export ORCHESTRATOR_ROOT=${ORCHESTRATOR_ROOT}" C-m
 
-    # Claudeを自動実行モードで起動
-    log_debug "Starting Claude in eng1 pane (auto-execution mode)..."
-    tmux send-keys -t "${session_name}.1" "claude --dangerously-skip-permissions" C-m
+    # 初期プロンプトを準備（変数展開）
+    local init_prompt_template="${ORCHESTRATOR_ROOT}/sessions/engineer/init-prompt-v0.2.0.txt"
+    local init_prompt_file="/tmp/claude-eng1-init-${task_id}.txt"
+
+    # 環境変数を使って初期プロンプトを生成
+    TASK_ID="${task_id}" \
+    ENGINEER_ROLE="eng1" \
+    WORK_DIR="${eng1_workdir}" \
+    PANE_ID="1" \
+    ORCHESTRATOR_ROOT="${ORCHESTRATOR_ROOT}" \
+    envsubst < "${init_prompt_template}" > "${init_prompt_file}"
+
+    # Claudeを自動実行モードで起動 with初期プロンプト
+    log_debug "Starting Claude in eng1 pane (auto-execution mode) with init prompt..."
+    tmux send-keys -t "${session_name}.1" "claude --dangerously-skip-permissions @${init_prompt_file}" C-m
 
     log_debug "eng1 pane created"
 }
@@ -288,12 +377,13 @@ main() {
     case "$command" in
         create)
             local task_id="${2:-}"
+            local user_instruction="${3:-}"
             if [[ -z "$task_id" ]]; then
                 log_error "Task ID is required"
-                echo "Usage: $0 create <task-id>"
+                echo "Usage: $0 create <task-id> [instruction]"
                 exit 1
             fi
-            create_task_session "$task_id"
+            create_task_session "$task_id" "$user_instruction"
             ;;
         kill)
             local task_id="${2:-}"

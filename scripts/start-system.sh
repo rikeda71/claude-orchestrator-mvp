@@ -79,8 +79,9 @@ init_directories() {
     done
 
     # エンジニア用ワークツリーディレクトリ
-    ensure_dir "${WORKTREE_BASE}/eng1"
-    ensure_dir "${WORKTREE_BASE}/eng2"
+    # Note: eng1/eng2ディレクトリはgit worktree addで自動作成されるため、ここでは作成しない
+    # ensure_dir "${WORKTREE_BASE}/eng1"
+    # ensure_dir "${WORKTREE_BASE}/eng2"
 
     log_success "Directory structure initialized"
 }
@@ -140,6 +141,7 @@ get_or_create_task() {
 #
 start_task_session() {
     local task_id="$1"
+    local user_instruction="$2"
 
     log_info "Starting task session for: ${task_id}"
 
@@ -153,8 +155,8 @@ start_task_session() {
         return 1
     fi
 
-    # タスクセッション作成
-    "$TASK_SESSION" create "$task_id"
+    # タスクセッション作成（指示を渡す）
+    "$TASK_SESSION" create "$task_id" "$user_instruction"
 
     log_success "Task session started: ${task_id}"
 }
@@ -319,6 +321,7 @@ EOF
 main() {
     local task_id=""
     local auto_attach="true"
+    local user_instruction=""
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
@@ -326,6 +329,10 @@ main() {
             --no-attach)
                 auto_attach="false"
                 shift
+                ;;
+            --instruction|-i)
+                user_instruction="$2"
+                shift 2
                 ;;
             --help|-h)
                 cat <<EOF
@@ -336,8 +343,9 @@ Arguments:
                     指定しない場合はデフォルトタスクを作成
 
 Options:
-  --no-attach       セッションに自動アタッチしない
-  --help, -h        このヘルプメッセージを表示
+  --no-attach           セッションに自動アタッチしない
+  --instruction, -i     PjMへの初期指示（必須）
+  --help, -h            このヘルプメッセージを表示
 
 Description:
   タスクごとに1つのtmuxセッションを起動します。
@@ -350,14 +358,14 @@ Description:
 
 Examples:
   # デフォルトタスクで起動
-  $0
+  $0 --instruction "Implement user authentication"
 
   # 既存のタスクで起動
-  $0 task-001
+  $0 task-001 --instruction "Fix login bug"
 
   # タスク作成後、そのタスクで起動
   ./scripts/core/task-manager.sh create feature "ユーザー認証実装"
-  $0 task-001
+  $0 task-001 -i "Implement JWT-based authentication"
 
 Workflow:
   1. タスクを作成（または既存タスクを指定）
@@ -401,11 +409,15 @@ EOF
         exit 1
     fi
 
-    # タスクセッション起動
-    start_task_session "$task_id"
+    # 指示が必須
+    if [[ -z "$user_instruction" ]]; then
+        log_error "Initial instruction is required"
+        log_info "Usage: $0 [task-id] --instruction \"Your instruction here\""
+        exit 1
+    fi
 
-    # 少し待機してセッションが安定するのを待つ
-    sleep 2
+    # タスクセッション起動
+    start_task_session "$task_id" "$user_instruction"
 
     # ウェルカムメッセージ
     show_welcome "$task_id"
@@ -449,10 +461,6 @@ EOF
                 ;;
         esac
 
-        # 少し待機してウィンドウが開くのを待つ
-        if [[ "$terminal_type" != "unknown" ]]; then
-            sleep 1
-        fi
     else
         echo ""
         log_info "To attach manually: tmux attach -t ${TMUX_SESSION_PREFIX}-task-${task_id}"

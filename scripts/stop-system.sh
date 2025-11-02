@@ -122,6 +122,9 @@ stop_task_session() {
     # セッション停止
     "$TASK_SESSION" kill "$task_id"
 
+    # Worktreeクリーンアップ
+    cleanup_worktrees "$task_id"
+
     log_success "Task session stopped: ${task_id}"
 }
 
@@ -161,6 +164,9 @@ stop_all_task_sessions() {
 
             # セッション停止
             "$TASK_SESSION" kill "$task_id"
+
+            # Worktreeクリーンアップ
+            cleanup_worktrees "$task_id"
 
             stopped_count=$((stopped_count + 1))
         fi
@@ -203,6 +209,46 @@ EOF
 
     log_debug "System status saved: ${status_file}"
     log_success "System status saved"
+}
+
+#
+# Worktreeのクリーンアップ
+#
+cleanup_worktrees() {
+    local task_id="$1"
+
+    if [[ -z "${TARGET_PROJECT_PATH:-}" ]]; then
+        log_debug "No target project configured, skipping worktree cleanup"
+        return 0
+    fi
+
+    if [[ ! -d "${TARGET_PROJECT_PATH}" ]]; then
+        log_warn "Target project not found: ${TARGET_PROJECT_PATH}"
+        return 0
+    fi
+
+    log_info "Cleaning up worktrees for task: ${task_id}..."
+
+    for role in eng1 eng2; do
+        local worktree_path="${WORKTREE_BASE}/${role}"
+
+        if [[ -d "$worktree_path" ]]; then
+            log_info "Removing worktree: ${worktree_path}"
+
+            local original_dir
+            original_dir=$(pwd)
+            cd "${TARGET_PROJECT_PATH}"
+
+            if git worktree remove "$worktree_path" --force 2>/dev/null; then
+                log_success "Worktree removed: ${worktree_path}"
+            else
+                log_warn "Failed to remove worktree: ${worktree_path}"
+                log_info "You may need to manually remove it with: git worktree remove ${worktree_path}"
+            fi
+
+            cd "$original_dir"
+        fi
+    done
 }
 
 #
