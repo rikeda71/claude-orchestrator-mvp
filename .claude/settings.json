@@ -25,10 +25,13 @@
       "Bash(git status:*)",
       "Bash(git log:*)",
       "Bash(git diff:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(./scripts/stop-system.sh:*)",
+      "Bash(./scripts/core/pane-manager.sh:*)"
     ],
     "deny": [],
     "ask": []
   },
-  "outputStyle": "ojisan"
+  "alwaysThinkingEnabled": false
 }
