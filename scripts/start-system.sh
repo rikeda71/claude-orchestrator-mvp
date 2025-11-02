@@ -196,7 +196,7 @@ create_sample_tasks() {
 #
 main() {
     local create_samples="false"
-    local with_viewer="false"
+    local with_viewer="true"
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
@@ -205,8 +205,8 @@ main() {
                 create_samples="true"
                 shift
                 ;;
-            --with-viewer)
-                with_viewer="true"
+            --no-viewer|--without-viewer)
+                with_viewer="false"
                 shift
                 ;;
             --help|-h)
@@ -214,9 +214,10 @@ main() {
 Usage: $0 [options]
 
 Options:
-  --with-samples    Create sample tasks after startup
-  --with-viewer     Launch integrated viewer in new terminal window
-  --help, -h        Show this help message
+  --with-samples           Create sample tasks after startup
+  --no-viewer              Do not launch integrated viewer (viewer is launched by default)
+  --without-viewer         Same as --no-viewer
+  --help, -h               Show this help message
 
 Description:
   Starts the Claude Orchestrator system with the following steps:
@@ -225,7 +226,7 @@ Description:
   3. Setup communication pipes
   4. Start tmux sessions (pjm, eng1)
   5. Initialize logging
-  6. (Optional) Launch integrated viewer
+  6. Launch integrated viewer (default, use --no-viewer to skip)
 
 After startup, you can:
   - Attach to sessions using tmux
@@ -234,10 +235,10 @@ After startup, you can:
   - View all sessions in integrated viewer
 
 Examples:
-  $0                       # Start system normally
-  $0 --with-samples        # Start with sample tasks
-  $0 --with-viewer         # Start with integrated viewer
-  $0 --with-samples --with-viewer  # Start with both
+  $0                       # Start system with viewer (default)
+  $0 --with-samples        # Start with sample tasks and viewer
+  $0 --no-viewer           # Start without viewer
+  $0 --with-samples --no-viewer  # Start with sample tasks but no viewer
 EOF
                 exit 0
                 ;;
