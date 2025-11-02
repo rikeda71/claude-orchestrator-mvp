@@ -160,6 +160,123 @@ start_task_session() {
 }
 
 #
+# OSとターミナルの検出
+#
+detect_terminal() {
+    local os_type
+    os_type=$(uname -s)
+
+    case "$os_type" in
+        Darwin)
+            # macOS
+            if [[ -n "${ITERM_SESSION_ID:-}" ]]; then
+                echo "iterm"
+            elif [[ -n "${TERM_PROGRAM:-}" ]] && [[ "${TERM_PROGRAM}" == "Apple_Terminal" ]]; then
+                echo "terminal"
+            else
+                # デフォルトはTerminal.app
+                echo "terminal"
+            fi
+            ;;
+        Linux)
+            # Linuxの場合、利用可能なターミナルを検索
+            if command -v gnome-terminal &> /dev/null; then
+                echo "gnome-terminal"
+            elif command -v konsole &> /dev/null; then
+                echo "konsole"
+            elif command -v xterm &> /dev/null; then
+                echo "xterm"
+            else
+                echo "unknown"
+            fi
+            ;;
+        *)
+            echo "unknown"
+            ;;
+    esac
+}
+
+#
+# 新しいターミナルウィンドウで起動（macOS Terminal.app）
+#
+open_in_terminal_app() {
+    local session_name="$1"
+
+    log_info "Terminal.appで新しいウィンドウを開きます..."
+
+    # AppleScriptを使用して新しいウィンドウで実行
+    osascript <<EOF
+tell application "Terminal"
+    do script "tmux attach-session -t ${session_name}"
+    activate
+end tell
+EOF
+
+    log_success "タスクセッションウィンドウを開きました"
+}
+
+#
+# 新しいターミナルウィンドウで起動（macOS iTerm2）
+#
+open_in_iterm() {
+    local session_name="$1"
+
+    log_info "iTerm2で新しいウィンドウを開きます..."
+
+    # AppleScriptを使用
+    osascript <<EOF
+tell application "iTerm"
+    create window with default profile
+    tell current session of current window
+        write text "tmux attach-session -t ${session_name}"
+    end tell
+    activate
+end tell
+EOF
+
+    log_success "タスクセッションウィンドウを開きました（iTerm2）"
+}
+
+#
+# 新しいターミナルウィンドウで起動（Linux gnome-terminal）
+#
+open_in_gnome_terminal() {
+    local session_name="$1"
+
+    log_info "gnome-terminalで新しいウィンドウを開きます..."
+
+    gnome-terminal -- bash -c "tmux attach-session -t ${session_name}"
+
+    log_success "タスクセッションウィンドウを開きました"
+}
+
+#
+# 新しいターミナルウィンドウで起動（Linux konsole）
+#
+open_in_konsole() {
+    local session_name="$1"
+
+    log_info "konsoleで新しいウィンドウを開きます..."
+
+    konsole -e bash -c "tmux attach-session -t ${session_name}"
+
+    log_success "タスクセッションウィンドウを開きました"
+}
+
+#
+# 新しいターミナルウィンドウで起動（Linux xterm）
+#
+open_in_xterm() {
+    local session_name="$1"
+
+    log_info "xtermで新しいウィンドウを開きます..."
+
+    xterm -e "tmux attach-session -t ${session_name}" &
+
+    log_success "タスクセッションウィンドウを開きました"
+}
+
+#
 # ウェルカムメッセージの表示
 #
 show_welcome() {
@@ -201,19 +318,25 @@ EOF
 #
 main() {
     local task_id=""
+    local auto_attach="true"
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --no-attach)
+                auto_attach="false"
+                shift
+                ;;
             --help|-h)
                 cat <<EOF
-Usage: $0 [task-id]
+Usage: $0 [task-id] [options]
 
 Arguments:
   task-id           タスクID（オプション）
                     指定しない場合はデフォルトタスクを作成
 
 Options:
+  --no-attach       セッションに自動アタッチしない
   --help, -h        このヘルプメッセージを表示
 
 Description:
@@ -238,12 +361,12 @@ Examples:
 
 Workflow:
   1. タスクを作成（または既存タスクを指定）
-  2. start-system.shでタスクセッション起動
-  3. tmux attachでセッションに接続
-  4. PjMペインでタスクを確認
-  5. PjMからeng1に指示を送信
-  6. eng1が自動実行
-  7. 完了後、stop-system.shで終了
+  2. start-system.shでタスクセッション起動（自動的にアタッチ）
+  3. PjMペインでタスクを確認
+  4. PjMからeng1に指示を送信
+  5. eng1が自動実行
+  6. 完了後、Ctrl+B → D でデタッチ
+  7. stop-system.shでセッション終了
 EOF
                 exit 0
                 ;;
@@ -288,7 +411,53 @@ EOF
     show_welcome "$task_id"
 
     log_system "orchestrator" "INFO" "System startup complete (task: ${task_id})"
-    log_success "=== System startup complete ===" To attach: tmux attach -t ${TMUX_SESSION_PREFIX}-task-${task_id}
+    log_success "=== System startup complete ==="
+
+    # 自動アタッチ（新しいターミナルウィンドウで）
+    if [[ "$auto_attach" == "true" ]]; then
+        local session_name="${TMUX_SESSION_PREFIX}-task-${task_id}"
+
+        # ターミナルタイプの検出
+        local terminal_type
+        terminal_type=$(detect_terminal)
+
+        log_info "検出されたターミナル: ${terminal_type}"
+        echo ""
+
+        case "$terminal_type" in
+            terminal)
+                open_in_terminal_app "$session_name" &
+                ;;
+            iterm)
+                open_in_iterm "$session_name" &
+                ;;
+            gnome-terminal)
+                open_in_gnome_terminal "$session_name" &
+                ;;
+            konsole)
+                open_in_konsole "$session_name" &
+                ;;
+            xterm)
+                open_in_xterm "$session_name"
+                ;;
+            unknown)
+                log_warn "サポートされているターミナルが見つかりません"
+                log_info "手動で以下のコマンドを実行してください:"
+                echo ""
+                echo "  tmux attach -t ${session_name}"
+                echo ""
+                ;;
+        esac
+
+        # 少し待機してウィンドウが開くのを待つ
+        if [[ "$terminal_type" != "unknown" ]]; then
+            sleep 1
+        fi
+    else
+        echo ""
+        log_info "To attach manually: tmux attach -t ${TMUX_SESSION_PREFIX}-task-${task_id}"
+        echo ""
+    fi
 }
 
 # スクリプトが直接実行された場合の処理
