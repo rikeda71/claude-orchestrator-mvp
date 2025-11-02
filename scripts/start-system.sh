@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# start-system.sh - システム起動スクリプト
-# Claude Orchestratorシステム全体を起動
+# start-system.sh - システム起動スクリプト (v0.2.0)
+# タスクセッションを起動
 #
 
 set -euo pipefail
@@ -16,8 +16,7 @@ source "${SCRIPT_DIR}/utils/common.sh"
 source "${SCRIPT_DIR}/utils/logger.sh"
 
 # コアスクリプトのパス
-SESSION_MANAGER="${SCRIPT_DIR}/core/session-manager.sh"
-MESSENGER="${SCRIPT_DIR}/core/messenger.sh"
+TASK_SESSION="${SCRIPT_DIR}/core/task-session.sh"
 TASK_MANAGER="${SCRIPT_DIR}/core/task-manager.sh"
 
 #
@@ -64,7 +63,6 @@ init_directories() {
     log_info "Initializing directory structure..."
 
     # 必要なディレクトリの作成
-    ensure_dir "$PIPE_DIR"
     ensure_dir "$LOG_DIR"
     ensure_dir "${LOG_DIR}/sessions"
     ensure_dir "${LOG_DIR}/system"
@@ -74,58 +72,17 @@ init_directories() {
     ensure_dir "$TASK_DIR/completed"
     ensure_dir "$TASK_DIR/reviews"
     ensure_dir "$WORKTREE_BASE"
-    ensure_dir "${ORCHESTRATOR_ROOT}/communication/buffers"
 
     # セッションディレクトリの作成
     for role in pjm eng1 eng2 reviewer docs; do
         ensure_dir "${ORCHESTRATOR_ROOT}/sessions/${role}"
     done
 
+    # エンジニア用ワークツリーディレクトリ
+    ensure_dir "${WORKTREE_BASE}/eng1"
+    ensure_dir "${WORKTREE_BASE}/eng2"
+
     log_success "Directory structure initialized"
-}
-
-#
-# 通信パイプの初期化
-#
-init_communication() {
-    log_info "Initializing communication system..."
-
-    # パイプの作成
-    "$MESSENGER" init-pipes
-
-    log_success "Communication system initialized"
-}
-
-#
-# セッションの起動
-#
-start_sessions() {
-    log_info "Starting sessions..."
-
-    # Phase 1: PjMとeng1のみ起動
-    local roles=("pjm" "eng1")
-
-    for role in "${roles[@]}"; do
-        log_info "Creating session: ${role}"
-        "$SESSION_MANAGER" create "$role"
-        sleep 1
-    done
-
-    log_success "Sessions started"
-}
-
-#
-# セッションの状態確認
-#
-verify_sessions() {
-    log_info "Verifying sessions..."
-
-    "$SESSION_MANAGER" list
-
-    # ヘルスチェック
-    "$SESSION_MANAGER" health
-
-    log_success "Session verification complete"
 }
 
 #
@@ -140,16 +97,73 @@ start_logging() {
 }
 
 #
+# タスクの存在確認とタスクIDの取得
+#
+get_or_create_task() {
+    local task_id="${1:-}"
+
+    if [[ -n "$task_id" ]]; then
+        # タスクIDが指定された場合、存在確認
+        local task_file
+        task_file=$("$TASK_MANAGER" _get-task-file "$task_id" 2>/dev/null || echo "")
+
+        if [[ -z "$task_file" ]] || [[ ! -f "$task_file" ]]; then
+            log_error "Task not found: ${task_id}"
+            log_info "Available tasks:"
+            "$TASK_MANAGER" list
+            return 1
+        fi
+
+        echo "$task_id"
+    else
+        # タスクIDが指定されない場合、デフォルトタスクを作成
+        log_info "No task ID specified, creating default task..."
+
+        local new_task_id
+        new_task_id=$("$TASK_MANAGER" create feature "Default orchestrator task" eng1 system | grep -o 'task-[0-9]*')
+
+        log_success "Created default task: ${new_task_id}"
+        echo "$new_task_id"
+    fi
+}
+
+#
+# タスクセッションの起動
+#
+start_task_session() {
+    local task_id="$1"
+
+    log_info "Starting task session for: ${task_id}"
+
+    # タスクセッションが既に存在する場合はエラー
+    if "$TASK_SESSION" exists "$task_id" 2>/dev/null; then
+        log_error "Task session already running: ${task_id}"
+        log_info "Attach to existing session with:"
+        echo "  tmux attach -t ${TMUX_SESSION_PREFIX}-task-${task_id}"
+        echo "Or:"
+        echo "  ${TASK_SESSION} attach ${task_id}"
+        return 1
+    fi
+
+    # タスクセッション作成
+    "$TASK_SESSION" create "$task_id"
+
+    log_success "Task session started: ${task_id}"
+}
+
+#
 # ウェルカムメッセージの表示
 #
 show_welcome() {
+    local task_id="$1"
+
     cat <<'EOF'
 
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║          Claude Orchestrator System Started                  ║
+║          Claude Orchestrator v0.2.0 Started                  ║
 ║                                                               ║
-║  Multi-Claude Workflow Management System                     ║
+║  Task-Based Session Architecture                             ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 
@@ -157,94 +171,81 @@ EOF
 
     log_info "System is ready!"
     echo ""
-    log_info "Active Sessions:"
-    "$SESSION_MANAGER" list
+    log_info "Task Session: ${task_id}"
     echo ""
     log_info "Available Commands:"
-    echo "  - Attach to PjM session:   tmux attach -t ${TMUX_SESSION_PREFIX}-pjm"
-    echo "  - Attach to eng1 session:  tmux attach -t ${TMUX_SESSION_PREFIX}-eng1"
-    echo "  - View all sessions:       ./scripts/core/session-manager.sh list"
-    echo "  - Create a task:           ./scripts/core/task-manager.sh create feature \"description\""
-    echo "  - Launch integrated viewer: ./scripts/start-viewer.sh"
-    echo "  - Stop system:             ./scripts/stop-system.sh"
+    echo "  - Attach to session:    tmux attach -t ${TMUX_SESSION_PREFIX}-task-${task_id}"
+    echo "  - Or use shortcut:      ${TASK_SESSION} attach ${task_id}"
+    echo "  - View task details:    ${TASK_MANAGER} show ${task_id}"
+    echo "  - List panes:           ${SCRIPT_DIR}/core/pane-manager.sh list ${task_id}"
+    echo "  - Stop session:         ${SCRIPT_DIR}/stop-system.sh ${task_id}"
+    echo ""
+    log_info "Pane Layout:"
+    echo "  - Pane 0 (left 30%):  PjM (Project Manager)"
+    echo "  - Pane 1 (right 70%): eng1 (Engineer 1)"
     echo ""
     log_info "System logs: ${LOG_DIR}"
     echo ""
 }
 
 #
-# 初期タスクの作成（オプション）
-#
-create_sample_tasks() {
-    local create_samples="${1:-false}"
-
-    if [[ "$create_samples" != "true" ]]; then
-        return 0
-    fi
-
-    log_info "Creating sample tasks..."
-
-    # サンプルタスクの作成
-    "$TASK_MANAGER" create feature "システムのセットアップと動作確認" eng1 pjm
-    "$TASK_MANAGER" create docs "READMEの更新" docs pjm
-
-    log_success "Sample tasks created"
-}
-
-#
 # メイン処理
 #
 main() {
-    local create_samples="false"
-    local with_viewer="true"
+    local task_id=""
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --with-samples)
-                create_samples="true"
-                shift
-                ;;
-            --no-viewer|--without-viewer)
-                with_viewer="false"
-                shift
-                ;;
             --help|-h)
                 cat <<EOF
-Usage: $0 [options]
+Usage: $0 [task-id]
+
+Arguments:
+  task-id           タスクID（オプション）
+                    指定しない場合はデフォルトタスクを作成
 
 Options:
-  --with-samples           Create sample tasks after startup
-  --no-viewer              Do not launch integrated viewer (viewer is launched by default)
-  --without-viewer         Same as --no-viewer
-  --help, -h               Show this help message
+  --help, -h        このヘルプメッセージを表示
 
 Description:
-  Starts the Claude Orchestrator system with the following steps:
-  1. Check prerequisites
-  2. Initialize directories
-  3. Setup communication pipes
-  4. Start tmux sessions (pjm, eng1)
-  5. Initialize logging
-  6. Launch integrated viewer (default, use --no-viewer to skip)
+  タスクごとに1つのtmuxセッションを起動します。
+  セッション内でペインを分割し、各ロールを配置：
+  - Pane 0: PjM (プロジェクトマネージャー)
+  - Pane 1: eng1 (エンジニア1、自動実行モード)
 
-After startup, you can:
-  - Attach to sessions using tmux
-  - Create and manage tasks
-  - Monitor system logs
-  - View all sessions in integrated viewer
+  PjMペインからeng1ペインに指示を送ることで、
+  自動的にタスクが進行します。
 
 Examples:
-  $0                       # Start system with viewer (default)
-  $0 --with-samples        # Start with sample tasks and viewer
-  $0 --no-viewer           # Start without viewer
-  $0 --with-samples --no-viewer  # Start with sample tasks but no viewer
+  # デフォルトタスクで起動
+  $0
+
+  # 既存のタスクで起動
+  $0 task-001
+
+  # タスク作成後、そのタスクで起動
+  ./scripts/core/task-manager.sh create feature "ユーザー認証実装"
+  $0 task-001
+
+Workflow:
+  1. タスクを作成（または既存タスクを指定）
+  2. start-system.shでタスクセッション起動
+  3. tmux attachでセッションに接続
+  4. PjMペインでタスクを確認
+  5. PjMからeng1に指示を送信
+  6. eng1が自動実行
+  7. 完了後、stop-system.shで終了
 EOF
                 exit 0
                 ;;
-            *)
+            -*)
                 log_error "Unknown option: $1"
                 exit 1
+                ;;
+            *)
+                task_id="$1"
+                shift
                 ;;
         esac
     done
@@ -253,37 +254,33 @@ EOF
     init_common
     init_logger
 
-    log_info "=== Claude Orchestrator System Startup ==="
-    log_system "orchestrator" "INFO" "Starting system..."
+    log_info "=== Claude Orchestrator v0.2.0 System Startup ==="
+    log_system "orchestrator" "INFO" "Starting system (v0.2.0 architecture)..."
 
     # 起動シーケンス
     check_prerequisites
     init_directories
-    init_communication
     start_logging
-    start_sessions
+
+    # タスクIDの取得または作成
+    task_id=$(get_or_create_task "$task_id")
+
+    if [[ -z "$task_id" ]]; then
+        log_error "Failed to get or create task"
+        exit 1
+    fi
+
+    # タスクセッション起動
+    start_task_session "$task_id"
 
     # 少し待機してセッションが安定するのを待つ
     sleep 2
 
-    verify_sessions
-
-    # サンプルタスクの作成（オプション）
-    create_sample_tasks "$create_samples"
-
-    # ビューアの起動（オプション）
-    if [[ "$with_viewer" == "true" ]]; then
-        log_info "Launching integrated viewer..."
-        "${SCRIPT_DIR}/start-viewer.sh" &
-        sleep 1
-        log_success "Integrated viewer launched in new window"
-    fi
-
     # ウェルカムメッセージ
-    show_welcome
+    show_welcome "$task_id"
 
-    log_system "orchestrator" "INFO" "System startup complete"
-    log_success "=== System startup complete ==="
+    log_system "orchestrator" "INFO" "System startup complete (task: ${task_id})"
+    log_success "=== System startup complete ===" To attach: tmux attach -t ${TMUX_SESSION_PREFIX}-task-${task_id}
 }
 
 # スクリプトが直接実行された場合の処理

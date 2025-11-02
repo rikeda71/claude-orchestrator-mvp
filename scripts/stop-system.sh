@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# stop-system.sh - システム停止スクリプト
-# Claude Orchestratorシステムを安全に停止
+# stop-system.sh - システム停止スクリプト (v0.2.0)
+# タスクセッションを停止
 #
 
 set -euo pipefail
@@ -16,149 +16,165 @@ source "${SCRIPT_DIR}/utils/common.sh"
 source "${SCRIPT_DIR}/utils/logger.sh"
 
 # コアスクリプトのパス
-SESSION_MANAGER="${SCRIPT_DIR}/core/session-manager.sh"
-MESSENGER="${SCRIPT_DIR}/core/messenger.sh"
+TASK_SESSION="${SCRIPT_DIR}/core/task-session.sh"
+TASK_MANAGER="${SCRIPT_DIR}/core/task-manager.sh"
 
 #
-# 進行中タスクの確認
+# タスクセッションのログ保存
 #
-check_running_tasks() {
-    log_info "Checking for running tasks..."
+save_task_session_logs() {
+    local task_id="$1"
+    local session_name
+    session_name=$(get_task_session_name "$task_id")
 
-    local in_progress_dir="${TASK_DIR}/in-progress"
-    local task_count=0
-
-    if [[ -d "$in_progress_dir" ]]; then
-        task_count=$(find "$in_progress_dir" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
-    fi
-
-    if [[ $task_count -gt 0 ]]; then
-        log_warn "Found ${task_count} task(s) in progress"
-        echo ""
-        echo "Tasks in progress:"
-
-        for task_file in "${in_progress_dir}"/*.json; do
-            [[ -f "$task_file" ]] || continue
-
-            local task_id
-            task_id=$(json_get "$task_file" '.id')
-            local description
-            description=$(json_get "$task_file" '.description')
-            local assigned_to
-            assigned_to=$(json_get "$task_file" '.assigned_to')
-
-            echo "  - ${task_id} (${assigned_to}): ${description}"
-        done
-
-        echo ""
-        return 1
-    else
-        log_success "No tasks in progress"
+    if ! tmux_session_exists "$session_name"; then
         return 0
     fi
-}
 
-#
-# セッションへの終了通知
-#
-notify_sessions() {
-    log_info "Notifying sessions about shutdown..."
+    log_info "Saving logs for task session: ${task_id}"
 
-    for role in pjm eng1; do
-        local session_name
-        session_name=$(get_session_name "$role")
+    local log_base="${LOG_DIR}/sessions/${task_id}_shutdown_$(date +%Y%m%d_%H%M%S)"
 
-        if tmux_session_exists "$session_name"; then
-            # メッセージ送信
-            "$MESSENGER" send system "$role" "System is shutting down..." 2>/dev/null || true
+    # 各ペインのログをキャプチャ
+    local pane_count
+    pane_count=$(tmux list-panes -t "$session_name" 2>/dev/null | wc -l | tr -d ' ')
 
-            # セッションログに記録
-            log_session "$role" "INFO" "Shutdown notification sent"
-        fi
+    for ((i=0; i<pane_count; i++)); do
+        local log_file="${log_base}_pane${i}.log"
+        tmux capture-pane -t "${session_name}.${i}" -p -S -1000 > "$log_file" 2>/dev/null || true
+        log_debug "Pane ${i} log saved: ${log_file}"
     done
 
-    # 通知が届くまで少し待機
-    sleep 1
-
-    log_success "Shutdown notifications sent"
+    log_success "Task session logs saved"
 }
 
 #
-# セッションのログ保存
+# タスクセッション名の取得（task-session.shから関数をインポート）
 #
-save_session_logs() {
-    log_info "Saving session logs..."
-
-    for role in pjm eng1; do
-        local session_name
-        session_name=$(get_session_name "$role")
-
-        if tmux_session_exists "$session_name"; then
-            # セッション出力のキャプチャ
-            local capture_file="${LOG_DIR}/sessions/${role}_shutdown_$(date +%Y%m%d_%H%M%S).log"
-            "$SESSION_MANAGER" capture "$role" 1000 > "$capture_file" 2>/dev/null || true
-
-            log_debug "Session log saved: ${capture_file}"
-        fi
-    done
-
-    log_success "Session logs saved"
+get_task_session_name() {
+    local task_id="$1"
+    echo "${TMUX_SESSION_PREFIX}-task-${task_id}"
 }
 
 #
-# セッションの停止
+# タスクステータスのチェック
 #
-stop_sessions() {
-    log_info "Stopping sessions..."
+check_task_status() {
+    local task_id="$1"
 
-    # ビューアセッションの停止
-    local viewer_session="${TMUX_SESSION_PREFIX}-viewer"
-    if tmux_session_exists "$viewer_session"; then
-        log_info "Stopping viewer session"
-        tmux kill-session -t "$viewer_session" 2>/dev/null || true
+    # タスク情報を取得
+    local task_file
+    task_file=$("$TASK_MANAGER" _get-task-file "$task_id" 2>/dev/null || echo "")
+
+    if [[ -z "$task_file" ]] || [[ ! -f "$task_file" ]]; then
+        log_warn "Task file not found: ${task_id}"
+        return 0
     fi
 
-    # 通常のセッションの停止
-    for role in pjm eng1 eng2 reviewer docs; do
-        local session_name
-        session_name=$(get_session_name "$role")
+    local status
+    status=$(json_get "$task_file" '.status')
 
-        if tmux_session_exists "$session_name"; then
-            log_info "Stopping session: ${role}"
-            "$SESSION_MANAGER" kill "$role"
-            log_session "$role" "INFO" "Session stopped"
+    if [[ "$status" == "in-progress" ]]; then
+        log_warn "Task is still in progress: ${task_id}"
+        local description
+        description=$(json_get "$task_file" '.description')
+        echo "  Task: ${description}"
+        return 1
+    fi
+
+    return 0
+}
+
+#
+# タスクセッションの停止
+#
+stop_task_session() {
+    local task_id="$1"
+    local force="$2"
+
+    log_info "Stopping task session: ${task_id}"
+
+    # タスクステータスのチェック
+    if [[ "$force" == "false" ]]; then
+        if ! check_task_status "$task_id"; then
+            echo ""
+            read -p "Task is in progress. Continue with shutdown? (y/N): " -n 1 -r
+            echo ""
+
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                log_info "Shutdown cancelled"
+                return 1
+            fi
         fi
-    done
+    fi
 
-    log_success "Sessions stopped"
+    # ログ保存
+    save_task_session_logs "$task_id"
+
+    # セッション停止
+    "$TASK_SESSION" kill "$task_id"
+
+    log_success "Task session stopped: ${task_id}"
 }
 
 #
-# 通信パイプのクリーンアップ
+# 全タスクセッションの停止
 #
-cleanup_pipes() {
-    log_info "Cleaning up communication pipes..."
+stop_all_task_sessions() {
+    local force="$1"
 
-    "$MESSENGER" cleanup-pipes
+    log_info "Stopping all task sessions..."
 
-    log_success "Communication pipes cleaned up"
-}
+    # アクティブなタスクセッションを検索
+    local session_pattern="${TMUX_SESSION_PREFIX}-task-"
+    local session_count=0
+    local stopped_count=0
 
-#
-# メッセージのクリーンアップ
-#
-cleanup_messages() {
-    log_info "Cleaning up messages..."
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^${session_pattern} ]]; then
+            local session_name="${line%%:*}"
+            local task_id="${session_name#${TMUX_SESSION_PREFIX}-task-}"
 
-    "$MESSENGER" cleanup 0
+            session_count=$((session_count + 1))
 
-    log_success "Messages cleaned up"
+            log_info "Found task session: ${task_id}"
+
+            # タスクステータスのチェック（強制モードでない場合）
+            if [[ "$force" == "false" ]]; then
+                if ! check_task_status "$task_id"; then
+                    log_warn "Skipping in-progress task: ${task_id}"
+                    echo "  Use --force to stop anyway"
+                    continue
+                fi
+            fi
+
+            # ログ保存
+            save_task_session_logs "$task_id"
+
+            # セッション停止
+            "$TASK_SESSION" kill "$task_id"
+
+            stopped_count=$((stopped_count + 1))
+        fi
+    done < <(tmux list-sessions 2>/dev/null || true)
+
+    if [[ $session_count -eq 0 ]]; then
+        log_info "No task sessions found"
+    else
+        log_success "Stopped ${stopped_count} of ${session_count} task session(s)"
+
+        if [[ $stopped_count -lt $session_count ]]; then
+            log_warn "$((session_count - stopped_count)) session(s) skipped due to in-progress tasks"
+        fi
+    fi
 }
 
 #
 # システムステータスの保存
 #
 save_system_status() {
+    local stopped_tasks="$1"
+
     log_info "Saving system status..."
 
     local status_file="${LOG_DIR}/system/shutdown_status_$(date +%Y%m%d_%H%M%S).json"
@@ -166,7 +182,8 @@ save_system_status() {
     cat > "$status_file" <<EOF
 {
   "shutdown_time": "$(timestamp)",
-  "sessions_stopped": ["pjm", "eng1"],
+  "architecture_version": "v0.2.0",
+  "stopped_tasks": "$stopped_tasks",
   "task_counts": {
     "pending": $(find "${TASK_DIR}/queue" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' '),
     "in_progress": $(find "${TASK_DIR}/in-progress" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' '),
@@ -184,22 +201,29 @@ EOF
 # 終了メッセージの表示
 #
 show_goodbye() {
+    local task_id="${1:-all}"
+
     cat <<'EOF'
 
 ╔═══════════════════════════════════════════════════════════════╗
 ║                                                               ║
-║          Claude Orchestrator System Stopped                  ║
+║          Claude Orchestrator v0.2.0 Stopped                  ║
 ║                                                               ║
-║  Thank you for using the system!                             ║
+║  Task Session Architecture                                   ║
 ║                                                               ║
 ╚═══════════════════════════════════════════════════════════════╝
 
 EOF
 
-    log_info "System stopped successfully"
+    if [[ "$task_id" == "all" ]]; then
+        log_info "All task sessions stopped"
+    else
+        log_info "Task session stopped: ${task_id}"
+    fi
+
     echo ""
     log_info "Logs saved in: ${LOG_DIR}"
-    log_info "To restart: ./scripts/start-system.sh"
+    log_info "To restart: ./scripts/start-system.sh [task-id]"
     echo ""
 }
 
@@ -207,49 +231,69 @@ EOF
 # メイン処理
 #
 main() {
+    local task_id=""
     local force="false"
-    local skip_task_check="false"
+    local all_sessions="false"
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --force|-f)
                 force="true"
-                skip_task_check="true"
                 shift
                 ;;
-            --skip-task-check)
-                skip_task_check="true"
+            --all|-a)
+                all_sessions="true"
                 shift
                 ;;
             --help|-h)
                 cat <<EOF
-Usage: $0 [options]
+Usage: $0 [task-id] [options]
+
+Arguments:
+  task-id           タスクID（オプション）
+                    指定しない場合は全タスクセッションを停止
 
 Options:
-  --force, -f           Force shutdown even with tasks in progress
-  --skip-task-check     Skip checking for tasks in progress
-  --help, -h            Show this help message
+  --all, -a         全タスクセッションを停止（明示的）
+  --force, -f       進行中タスクも強制停止
+  --help, -h        このヘルプメッセージを表示
 
 Description:
-  Safely stops the Claude Orchestrator system with the following steps:
-  1. Check for running tasks (optional)
-  2. Notify sessions about shutdown
-  3. Save session logs
-  4. Stop all tmux sessions
-  5. Clean up communication pipes
-  6. Save system status
+  タスクセッション（v0.2.0）を停止します。
+  セッション停止前にログを保存し、進行中タスクを確認します。
+
+  v0.2.0では、タスクごとに1つのtmuxセッションを使用します。
+  各セッション内でペインを分割して複数のロールを配置しています。
 
 Examples:
-  $0                    # Normal shutdown (checks for running tasks)
-  $0 --force            # Force shutdown
-  $0 --skip-task-check  # Skip task check but ask for confirmation
+  # 特定のタスクセッションを停止
+  $0 task-001
+
+  # 全タスクセッションを停止
+  $0 --all
+
+  # 進行中タスクも含めて強制停止
+  $0 task-001 --force
+
+  # 全タスクを強制停止
+  $0 --all --force
+
+Workflow:
+  1. タスクステータスのチェック（--forceで省略可）
+  2. セッションログの保存
+  3. タスクセッション停止
+  4. システムステータス保存
 EOF
                 exit 0
                 ;;
-            *)
+            -*)
                 log_error "Unknown option: $1"
                 exit 1
+                ;;
+            *)
+                task_id="$1"
+                shift
                 ;;
         esac
     done
@@ -258,39 +302,29 @@ EOF
     init_common
     init_logger
 
-    log_info "=== Claude Orchestrator System Shutdown ==="
-    log_system "orchestrator" "INFO" "Starting shutdown sequence..."
+    log_info "=== Claude Orchestrator v0.2.0 System Shutdown ==="
+    log_system "orchestrator" "INFO" "Starting shutdown sequence (v0.2.0 architecture)..."
 
-    # 進行中タスクのチェック
-    if [[ "$skip_task_check" == "false" ]]; then
-        if ! check_running_tasks; then
-            if [[ "$force" == "false" ]]; then
-                echo ""
-                read -p "Continue with shutdown? (y/N): " -n 1 -r
-                echo ""
-
-                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                    log_info "Shutdown cancelled"
-                    exit 0
-                fi
-            else
-                log_warn "Force shutdown requested, ignoring running tasks"
-            fi
+    # 停止対象の決定
+    if [[ "$all_sessions" == "true" ]] || [[ -z "$task_id" ]]; then
+        # 全セッション停止
+        stop_all_task_sessions "$force"
+        stopped_tasks="all"
+    else
+        # 特定のタスクセッション停止
+        if ! stop_task_session "$task_id" "$force"; then
+            exit 1
         fi
+        stopped_tasks="$task_id"
     fi
 
-    # 停止シーケンス
-    notify_sessions
-    save_session_logs
-    stop_sessions
-    cleanup_pipes
-    cleanup_messages
-    save_system_status
+    # システムステータス保存
+    save_system_status "$stopped_tasks"
 
     # 終了メッセージ
-    show_goodbye
+    show_goodbye "$stopped_tasks"
 
-    log_system "orchestrator" "INFO" "System shutdown complete"
+    log_system "orchestrator" "INFO" "System shutdown complete (task: ${stopped_tasks})"
     log_success "=== System shutdown complete ==="
 }
 
