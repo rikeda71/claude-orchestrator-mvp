@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Note
+
+You must implement this pj with Japanese Language.
+
 ## Project Overview
 
 Claude Orchestrator is a multi-Claude workflow orchestration system that enables multiple Claude Code instances to collaborate on parallel development tasks. The system is inspired by Anthropic's "Claude Code Best Practices" Chapter 6: "Uplevel with multi-Claude workflows".
