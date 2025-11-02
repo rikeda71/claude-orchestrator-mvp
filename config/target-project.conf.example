@@ -1,0 +1,52 @@
+# 管理対象プロジェクト設定
+# このファイルを target-project.conf にコピーして使用してください
+# cp target-project.conf.example target-project.conf
+
+# 管理対象プロジェクトのパス
+# 例: TARGET_PROJECT_PATH="/path/to/your/project"
+TARGET_PROJECT_PATH=""
+
+# 管理対象プロジェクトのメインブランチ
+TARGET_PROJECT_MAIN_BRANCH="main"
+
+# Gitワークツリーのベースディレクトリ
+# デフォルトはオーケストレーター内のworktreesディレクトリ
+# 外部パスを指定することも可能
+# WORKTREE_BASE="${ORCHESTRATOR_ROOT}/worktrees"
+
+# エンジニア1のブランチ名パターン
+ENG1_BRANCH_PREFIX="eng1/feature"
+
+# エンジニア2のブランチ名パターン
+ENG2_BRANCH_PREFIX="eng2/feature"
+
+# 自動マージの有効化（レビュー承認後）
+AUTO_MERGE_ENABLED=false
+
+# レビュー必須フラグ
+REVIEW_REQUIRED=true
+
+# Gitのリモート名
+GIT_REMOTE="origin"
+
+# 自動プッシュの有効化
+AUTO_PUSH_ENABLED=false
+
+# ============================================
+# 設定例
+# ============================================
+
+# 例1: ローカルプロジェクトを管理
+# TARGET_PROJECT_PATH="/Users/username/projects/myapp"
+# TARGET_PROJECT_MAIN_BRANCH="main"
+
+# 例2: 異なるGitリモートを使用
+# TARGET_PROJECT_PATH="/Users/username/projects/client-project"
+# GIT_REMOTE="upstream"
+# TARGET_PROJECT_MAIN_BRANCH="develop"
+
+# 例3: 自動化を有効にする（本番運用向け）
+# TARGET_PROJECT_PATH="/Users/username/projects/production-app"
+# REVIEW_REQUIRED=true
+# AUTO_MERGE_ENABLED=true
+# AUTO_PUSH_ENABLED=true

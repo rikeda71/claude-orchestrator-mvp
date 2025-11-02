@@ -1,0 +1,39 @@
+# システム生成ファイル
+*.log
+*.pid
+*.swp
+*~
+.DS_Store
+
+# 通信関連（ランタイム生成）
+communication/pipes/*
+!communication/pipes/.gitkeep
+communication/buffers/*
+!communication/buffers/.gitkeep
+communication/logs/*
+!communication/logs/.gitkeep
+
+# タスク管理（実行時生成）
+tasks/queue/*
+!tasks/queue/.gitkeep
+tasks/in-progress/*
+!tasks/in-progress/.gitkeep
+tasks/completed/*
+!tasks/completed/.gitkeep
+tasks/reviews/*
+!tasks/reviews/.gitkeep
+
+# ワークツリー（実行時生成）
+worktrees/*
+!worktrees/.gitkeep
+
+# 個別設定ファイル（機密情報を含む可能性）
+config/target-project.conf
+
+# 一時ファイル
+tmp/
+*.tmp
+
+# バックアップファイル
+*.bak
+*.backup
