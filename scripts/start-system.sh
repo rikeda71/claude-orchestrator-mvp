@@ -206,11 +206,19 @@ open_in_terminal_app() {
 
     log_info "Terminal.appで新しいウィンドウを開きます..."
 
-    # AppleScriptを使用して新しいウィンドウで実行
+    # AppleScriptを使用して新しいウィンドウで最大サイズで実行
     osascript <<EOF
 tell application "Terminal"
-    do script "tmux attach-session -t ${session_name}"
+    set newWindow to do script "tmux attach-session -t ${session_name}"
     activate
+
+    -- 画面の境界を取得
+    tell application "Finder"
+        set screenBounds to bounds of window of desktop
+    end tell
+
+    -- ウィンドウを最大サイズに設定（少し余白を残す）
+    set bounds of window 1 to {0, 22, item 3 of screenBounds, item 4 of screenBounds}
 end tell
 EOF
 
@@ -225,7 +233,7 @@ open_in_iterm() {
 
     log_info "iTerm2で新しいウィンドウを開きます..."
 
-    # AppleScriptを使用
+    # AppleScriptを使用して最大サイズで開く
     osascript <<EOF
 tell application "iTerm"
     create window with default profile
@@ -233,6 +241,14 @@ tell application "iTerm"
         write text "tmux attach-session -t ${session_name}"
     end tell
     activate
+
+    -- 画面の境界を取得
+    tell application "Finder"
+        set screenBounds to bounds of window of desktop
+    end tell
+
+    -- ウィンドウを最大サイズに設定（少し余白を残す）
+    set bounds of current window to {0, 22, item 3 of screenBounds, item 4 of screenBounds}
 end tell
 EOF
 

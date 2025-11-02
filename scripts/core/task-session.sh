@@ -94,32 +94,15 @@ setup_pjm_pane() {
     local session_name="$1"
     local task_id="$2"
     local user_instruction="$3"
-    local pjm_workdir
-    pjm_workdir=$(get_pane_workdir "pjm")
 
     log_debug "Setting up PjM pane..."
 
-    # 作業ディレクトリへ移動
-    tmux send-keys -t "${session_name}.0" "cd ${pjm_workdir}" C-m
+    # 初期化スクリプトのパス
+    local init_script="${ORCHESTRATOR_ROOT}/sessions/pjm/init.sh"
 
-    # 環境変数設定
-    tmux send-keys -t "${session_name}.0" "export TASK_ID=${task_id}" C-m
-    tmux send-keys -t "${session_name}.0" "export ORCHESTRATOR_ROOT=${ORCHESTRATOR_ROOT}" C-m
-    tmux send-keys -t "${session_name}.0" "export USER_INSTRUCTION='${user_instruction}'" C-m
-
-    # 初期プロンプトを準備（変数展開）
-    local init_prompt_template="${ORCHESTRATOR_ROOT}/sessions/pjm/init-prompt-v0.2.0.txt"
-    local init_prompt_file="/tmp/claude-pjm-init-${task_id}.txt"
-
-    # 環境変数を使って初期プロンプトを生成
-    TASK_ID="${task_id}" \
-    ORCHESTRATOR_ROOT="${ORCHESTRATOR_ROOT}" \
-    USER_INSTRUCTION="${user_instruction}" \
-    envsubst < "${init_prompt_template}" > "${init_prompt_file}"
-
-    # Claudeを起動（自動実行モード）with初期プロンプト
-    log_debug "Starting Claude in PjM pane (auto-execution mode) with init prompt..."
-    tmux send-keys -t "${session_name}.0" "claude --dangerously-skip-permissions @${init_prompt_file}" C-m
+    # 初期化スクリプトを実行（1回の実行で環境設定とClaude起動を完了）
+    log_debug "Starting Claude in PjM pane (auto-execution mode) with init script..."
+    tmux send-keys -t "${session_name}.0" "${init_script} '${task_id}' '${ORCHESTRATOR_ROOT}' '${user_instruction}'" C-m
 
     log_debug "PjM pane setup complete"
 }
@@ -211,31 +194,12 @@ create_eng1_pane() {
         fi
     fi
 
-    # 作業ディレクトリへ移動
-    tmux send-keys -t "${session_name}.1" "cd ${eng1_workdir}" C-m
+    # 初期化スクリプトのパス
+    local init_script="${ORCHESTRATOR_ROOT}/sessions/engineer/init.sh"
 
-    # 環境変数設定
-    tmux send-keys -t "${session_name}.1" "export TASK_ID=${task_id}" C-m
-    tmux send-keys -t "${session_name}.1" "export ENGINEER_ROLE=eng1" C-m
-    tmux send-keys -t "${session_name}.1" "export WORK_DIR=${eng1_workdir}" C-m
-    tmux send-keys -t "${session_name}.1" "export PANE_ID=1" C-m
-    tmux send-keys -t "${session_name}.1" "export ORCHESTRATOR_ROOT=${ORCHESTRATOR_ROOT}" C-m
-
-    # 初期プロンプトを準備（変数展開）
-    local init_prompt_template="${ORCHESTRATOR_ROOT}/sessions/engineer/init-prompt-v0.2.0.txt"
-    local init_prompt_file="/tmp/claude-eng1-init-${task_id}.txt"
-
-    # 環境変数を使って初期プロンプトを生成
-    TASK_ID="${task_id}" \
-    ENGINEER_ROLE="eng1" \
-    WORK_DIR="${eng1_workdir}" \
-    PANE_ID="1" \
-    ORCHESTRATOR_ROOT="${ORCHESTRATOR_ROOT}" \
-    envsubst < "${init_prompt_template}" > "${init_prompt_file}"
-
-    # Claudeを自動実行モードで起動 with初期プロンプト
-    log_debug "Starting Claude in eng1 pane (auto-execution mode) with init prompt..."
-    tmux send-keys -t "${session_name}.1" "claude --dangerously-skip-permissions @${init_prompt_file}" C-m
+    # 初期化スクリプトを実行（1回の実行で環境設定とClaude起動を完了）
+    log_debug "Starting Claude in eng1 pane (auto-execution mode) with init script..."
+    tmux send-keys -t "${session_name}.1" "${init_script} '${task_id}' 'eng1' '${eng1_workdir}' '1' '${ORCHESTRATOR_ROOT}'" C-m
 
     log_debug "eng1 pane created"
 }
