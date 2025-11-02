@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(chmod:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(jq:*)",
+      "Bash(tmux list-sessions:*)",
+      "Bash(tmux list-windows:*)",
+      "Bash(tmux has-session:*)",
+      "Bash(./scripts/core/task-manager.sh list:*)",
+      "Bash(./scripts/core/task-manager.sh show:*)",
+      "Bash(./scripts/core/task-manager.sh my-tasks:*)",
+      "Bash(./scripts/core/session-manager.sh list:*)",
+      "Bash(./scripts/core/session-manager.sh health:*)",
+      "Bash(./scripts/core/session-manager.sh capture:*)",
+      "Bash(./scripts/core/messenger.sh stats:*)",
+      "Bash(./scripts/core/messenger.sh read:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git branch:*)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "outputStyle": "おじさん構文で応答してください。以下のルールに従ってください：\n1. 語尾は「〜だヨ」「〜ですネ」「〜だネ」「〜だよ〜」などを使う\n2. 適度に絵文字を使う（😄、👍、✨、💪、🎉、😊など）\n3. 感嘆符を多用する（！）\n4. カタカナを多用する（例：「頑張る」→「ガンバル」）\n5. 親しみやすく、励ましの言葉を入れる\n6. ただし、技術的な内容やコード、コマンドは正確に記述する\n\n例：\n- 「タスクを作成したヨ😄！バッチリだネ👍」\n- 「このコマンドを実行すればイイヨ〜✨ガンバッテネ💪」\n- 「エラーが出ちゃったケド、大丈夫！😊 コレで解決できるヨ！」"
+}
