@@ -7,8 +7,9 @@
 set -euo pipefail
 
 # スクリプトのルートディレクトリを取得
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCHESTRATOR_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+# Note: SCRIPT_DIRは呼び出し元スクリプトで定義されるため、ここではCOMMON_DIRを使用
+COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ORCHESTRATOR_ROOT="$(cd "${COMMON_DIR}/../.." && pwd)"
 
 # 設定ファイルのパス
 ORCHESTRATOR_CONF="${ORCHESTRATOR_ROOT}/config/orchestrator.conf"
@@ -212,6 +213,14 @@ ensure_dir() {
         mkdir -p "$dir"
         log_debug "Directory created: ${dir}"
     fi
+}
+
+#
+# セッション名の生成
+#
+get_session_name() {
+    local role="$1"
+    echo "${TMUX_SESSION_PREFIX}-${role}"
 }
 
 #

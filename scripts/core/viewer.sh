@@ -13,8 +13,8 @@ source "${SCRIPT_DIR}/../utils/common.sh"
 # shellcheck source=../utils/logger.sh
 source "${SCRIPT_DIR}/../utils/logger.sh"
 
-# ビューアセッション名
-VIEWER_SESSION="${TMUX_SESSION_PREFIX}-viewer"
+# ビューアセッション名（init_common()後に設定）
+VIEWER_SESSION=""
 
 #
 # ビューアセッションの作成
@@ -56,8 +56,10 @@ setup_viewer_layout() {
     local pane_count=${#roles[@]}
 
     if [[ $pane_count -eq 0 ]]; then
-        log_warn "表示するロールが指定されていません"
-        return 1
+        log_debug "PjMセッションのみのレイアウトを設定"
+        # PjMのみの場合は分割なし（全画面表示）
+        log_success "レイアウト設定完了"
+        return 0
     fi
 
     # 左側30%をPjM、右側70%をその他に分割
@@ -91,7 +93,7 @@ attach_sessions_to_panes() {
     local pjm_session="${TMUX_SESSION_PREFIX}-pjm"
     if tmux_session_exists "$pjm_session"; then
         log_debug "PjMセッションを接続: ペイン0"
-        tmux send-keys -t "${window}.0" "tmux attach-session -t ${pjm_session}" C-m
+        tmux send-keys -t "${window}.0" "TMUX= tmux attach-session -t ${pjm_session}" C-m
     else
         log_warn "PjMセッションが存在しません"
         tmux send-keys -t "${window}.0" "echo 'PjMセッションが起動していません'" C-m
@@ -106,7 +108,7 @@ attach_sessions_to_panes() {
             log_debug "${role}セッションを接続: ペイン${pane_index}"
             # ペインが存在するか確認
             if tmux list-panes -t "$window" | grep -q "^${pane_index}:"; then
-                tmux send-keys -t "${window}.${pane_index}" "tmux attach-session -t ${role_session}" C-m
+                tmux send-keys -t "${window}.${pane_index}" "TMUX= tmux attach-session -t ${role_session}" C-m
                 pane_index=$((pane_index + 1))
             fi
         fi
@@ -139,7 +141,11 @@ setup_viewer() {
     create_viewer_session
 
     # レイアウト設定
-    setup_viewer_layout "${active_roles[@]}"
+    if [[ ${#active_roles[@]} -gt 0 ]]; then
+        setup_viewer_layout "${active_roles[@]}"
+    else
+        setup_viewer_layout
+    fi
 
     # セッション接続
     attach_sessions_to_panes
@@ -198,6 +204,9 @@ viewer_status() {
 main() {
     init_common
     init_logger
+
+    # ビューアセッション名を設定
+    VIEWER_SESSION="${TMUX_SESSION_PREFIX}-viewer"
 
     local command="${1:-}"
 

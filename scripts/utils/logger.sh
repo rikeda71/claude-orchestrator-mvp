@@ -6,15 +6,13 @@
 
 set -euo pipefail
 
-# common.shの読み込み
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./common.sh
-source "${SCRIPT_DIR}/common.sh"
+# Note: logger.shは必ずcommon.shの後にsourceされることを前提とする
+# common.shが既に読み込まれていることが必要（ORCHESTRATOR_ROOTなどの変数が定義済み）
 
-# ログファイルのパス
-SESSION_LOG_DIR="${LOG_DIR}/sessions"
-SYSTEM_LOG_DIR="${LOG_DIR}/system"
-TASK_LOG_DIR="${LOG_DIR}/tasks"
+# ログファイルのパスは init_logger() で設定される
+SESSION_LOG_DIR=""
+SYSTEM_LOG_DIR=""
+TASK_LOG_DIR=""
 
 # ログローテーション設定
 MAX_LOG_SIZE_MB=10
@@ -24,6 +22,11 @@ MAX_LOG_FILES=5
 # ログディレクトリの初期化
 #
 init_logger() {
+    # ログディレクトリパスを設定（init_common()の後に呼ばれる前提）
+    SESSION_LOG_DIR="${LOG_DIR}/sessions"
+    SYSTEM_LOG_DIR="${LOG_DIR}/system"
+    TASK_LOG_DIR="${LOG_DIR}/tasks"
+
     ensure_dir "$SESSION_LOG_DIR"
     ensure_dir "$SYSTEM_LOG_DIR"
     ensure_dir "$TASK_LOG_DIR"
