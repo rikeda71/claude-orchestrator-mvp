@@ -6,10 +6,6 @@
 .DS_Store
 
 # 通信関連（ランタイム生成）
-communication/pipes/*
-!communication/pipes/.gitkeep
-communication/buffers/*
-!communication/buffers/.gitkeep
 communication/logs/*
 !communication/logs/.gitkeep
 
