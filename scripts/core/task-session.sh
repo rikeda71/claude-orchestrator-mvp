@@ -44,6 +44,8 @@ get_pane_workdir() {
             echo "${WORKTREE_BASE}/${role}"
             ;;
         reviewer)
+            # Phase 3: Reviewer は orchestrator context で動作
+            # Engineer の worktree に直接アクセス
             echo "${ORCHESTRATOR_ROOT}/sessions/reviewer"
             ;;
         docs)
@@ -241,6 +243,68 @@ create_engineer_panes() {
     done
 
     log_success "All engineer panes created (${num_engineers} engineers)"
+}
+
+#
+# Reviewer用ディレクトリの確認（Phase 3）
+# Reviewer は worktree を作成せず、Engineer の worktree に直接アクセス
+#
+ensure_reviewer_directory() {
+    local reviewer_dir="${ORCHESTRATOR_ROOT}/sessions/reviewer"
+
+    if [[ ! -d "$reviewer_dir" ]]; then
+        log_info "Creating reviewer session directory: ${reviewer_dir}"
+        mkdir -p "$reviewer_dir"
+    fi
+
+    log_debug "Reviewer directory ready: ${reviewer_dir}"
+}
+
+#
+# Reviewerペインの作成（Phase 3）
+#
+create_reviewer_pane() {
+    local task_id="$1"
+    local session_name
+    session_name=$(get_task_session_name "$task_id")
+    local num_engineers="${NUM_ENGINEERS:-1}"
+
+    log_info "Creating reviewer pane..."
+
+    # Reviewer用ディレクトリを確認（worktreeは作成しない）
+    ensure_reviewer_directory
+
+    # Reviewerは最後のエンジニアペインの下に垂直分割で作成
+    local last_engineer_pane="$num_engineers"
+    tmux split-window -v -t "${session_name}.${last_engineer_pane}"
+
+    # Reviewerペイン番号を計算（pjm=0, eng1...engN=1...N, reviewer=N+1）
+    local reviewer_pane=$((num_engineers + 1))
+    local reviewer_dir
+    reviewer_dir=$(get_pane_workdir "reviewer")
+
+    # 初期化スクリプトのパス
+    local init_script="${ORCHESTRATOR_ROOT}/sessions/reviewer/init.sh"
+
+    # 初期化スクリプトが存在する場合は実行
+    if [[ -f "$init_script" ]]; then
+        log_debug "Starting Claude in reviewer pane (auto-execution mode)..."
+        tmux send-keys -t "${session_name}.${reviewer_pane}" "${init_script} '${task_id}' 'reviewer' '${reviewer_dir}' '${reviewer_pane}' '${ORCHESTRATOR_ROOT}'" C-m
+    else
+        log_warn "Reviewer init script not found: ${init_script}"
+        log_info "Setting up reviewer pane manually..."
+
+        # 作業ディレクトリへ移動
+        tmux send-keys -t "${session_name}.${reviewer_pane}" "cd ${reviewer_dir}" C-m
+
+        # 環境変数設定
+        tmux send-keys -t "${session_name}.${reviewer_pane}" "export TASK_ID=${task_id}" C-m
+        tmux send-keys -t "${session_name}.${reviewer_pane}" "export ORCHESTRATOR_ROOT=${ORCHESTRATOR_ROOT}" C-m
+        tmux send-keys -t "${session_name}.${reviewer_pane}" "export PANE_ID=${reviewer_pane}" C-m
+        tmux send-keys -t "${session_name}.${reviewer_pane}" "export ROLE=reviewer" C-m
+    fi
+
+    log_success "Reviewer pane created (pane ${reviewer_pane})"
 }
 
 #

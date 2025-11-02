@@ -30,11 +30,12 @@ The system uses tmux sessions to manage different Claude Code instances, each pl
 
 ### Role-Based Session Structure
 
-The system operates with 5 distinct roles (Phase 1 MVP uses 2):
+The system operates with 5 distinct roles (Phase 1-3 implemented):
 - **pjm** (Project Manager): Task creation, assignment, progress monitoring
-- **eng1/eng2** (Engineers): Implementation in isolated git worktrees
-- **reviewer**: Code review and quality assurance
-- **docs**: Design document creation and maintenance
+- **eng1/eng2/engN** (Engineers): Implementation in isolated git worktrees with parallel development support
+- **reviewer**: Code review and quality assurance (Phase 3)
+- **docs**: Design document creation and maintenance (Future)
+- **qa**: Test system implementation result (Future)
 
 ### Key Components
 
@@ -50,16 +51,26 @@ The system operates with 5 distinct roles (Phase 1 MVP uses 2):
 
 3. **Git Worktree Management**
    - Engineers work in isolated git worktrees to avoid conflicts
-   - Worktrees stored in `worktrees/{eng1,eng2}/`
+   - Worktrees stored in `TARGET_PROJECT_PATH/.orchestrator-worktrees/{eng1,eng2,engN}/`
    - Each engineer has their own branch prefix pattern
+   - Reviewer directly accesses engineer worktrees (read-only) for code review
+
+4. **Review Workflow** (Phase 3)
+   - Engineers request review by sending `REVIEW_REQUEST` to reviewer
+   - Reviewer checks code quality, security, and best practices
+   - Reviewer responds with `APPROVED`, `CHANGES_REQUESTED`, or `BLOCKED`
+   - Engineers merge to base branch after approval
 
 ## Development Commands
 
 ### System Management
 
 ```bash
-# Start the orchestrator system (creates tmux sessions for pjm and eng1)
+# Start the orchestrator system with default settings (1 engineer)
 ./scripts/start-system.sh
+
+# Start with multiple engineers and instruction (Phase 2+3)
+./scripts/start-system.sh --engineers 3 --instruction "ユーザー管理機能を実装してください"
 
 # Start with sample tasks
 ./scripts/start-system.sh --with-samples
@@ -338,25 +349,51 @@ This ensures the system works with any project regardless of whether it uses `ma
 
 ```
 claude-orchestrator/
-├── config/              # Configuration files
+├── config/                      # Configuration files
+│   ├── orchestrator.conf       # System-wide settings
+│   └── target-project.conf     # Target project configuration
 ├── scripts/
-│   ├── core/           # Core functionality (task, session, messaging)
-│   └── utils/          # Shared utilities (common.sh, logger.sh)
-├── sessions/            # Session initialization files
-│   ├── pjm/            # Project manager context
-│   ├── engineer/       # Engineer context
-│   ├── reviewer/       # Reviewer context
-│   └── docs/           # Documentation writer context
-├── tasks/               # Task management
-│   ├── queue/          # Pending tasks
-│   ├── in-progress/    # Active tasks
-│   ├── completed/      # Done tasks
-│   └── reviews/        # Awaiting review
-├── communication/       # Inter-session communication
-│   ├── pipes/          # Named pipes (FIFO)
-│   ├── buffers/        # Message buffers
-│   └── logs/           # Session and system logs
-└── worktrees/          # Git worktrees for engineers
+│   ├── core/                   # Core functionality
+│   │   ├── task-manager.sh     # Task management
+│   │   ├── task-session.sh     # Task session creation
+│   │   ├── session-manager.sh  # Session lifecycle
+│   │   ├── pane-manager.sh     # Tmux pane messaging (Phase 2+3)
+│   │   └── messenger.sh        # Legacy messaging
+│   ├── utils/                  # Shared utilities
+│   │   ├── common.sh           # Common functions
+│   │   └── logger.sh           # Logging utilities
+│   ├── start-system.sh         # System startup
+│   └── stop-system.sh          # System shutdown
+├── sessions/                    # Session initialization files
+│   ├── pjm/                    # Project manager context
+│   │   └── init-prompt-v0.3.0.txt
+│   ├── engineer/               # Engineer context
+│   │   ├── init.sh
+│   │   └── init-prompt-v0.2.0.txt
+│   ├── reviewer/               # Reviewer context (Phase 3)
+│   │   ├── init.sh
+│   │   └── init-prompt-v0.3.0.txt
+│   └── docs/                   # Documentation writer context (Future)
+├── tasks/                       # Task management
+│   ├── queue/                  # Pending tasks
+│   ├── in-progress/            # Active tasks
+│   ├── completed/              # Done tasks
+│   └── reviews/                # Awaiting review (Phase 3)
+├── communication/               # Inter-session communication
+│   ├── pipes/                  # Named pipes (FIFO) - Legacy
+│   ├── buffers/                # Message buffers - Legacy
+│   └── logs/                   # Session and system logs
+└── docs/                        # Design documents
+    ├── 000-design-doc.md       # Original design
+    ├── 000-detailed-design.md  # Detailed architecture
+    └── 008-phase3-reviewer-integration.md  # Phase 3 design
+
+Target Project Structure (managed by orchestrator):
+TARGET_PROJECT_PATH/
+└── .orchestrator-worktrees/    # Git worktrees for engineers
+    ├── eng1/                   # Engineer 1 worktree
+    ├── eng2/                   # Engineer 2 worktree
+    └── engN/                   # Engineer N worktree
 ```
 
 ## Important Implementation Details
@@ -370,7 +407,8 @@ Task IDs follow the pattern: `{prefix}-{timestamp}-{random}`
 ### Session Roles and Working Directories
 
 - **pjm/reviewer/docs**: Work in `sessions/{role}/` (orchestrator context)
-- **eng1/eng2**: Work in `worktrees/{role}/` (target project context)
+- **eng1/eng2/engN**: Work in `TARGET_PROJECT_PATH/.orchestrator-worktrees/{role}/` (target project context)
+- **reviewer**: Accesses engineer worktrees directly at `TARGET_PROJECT_PATH/.orchestrator-worktrees/{eng1,eng2,engN}/` (read-only)
 
 ### Status Updates with File Movement
 
@@ -380,12 +418,23 @@ When updating task status, the task JSON file is moved between directories:
 
 ### Init Prompts
 
-Each session has an initialization prompt in `sessions/{role}/init-prompt.txt` that defines:
+Each session has an initialization prompt that defines:
 - Role and responsibilities
 - Available commands (relative paths from session workdir)
 - Working directory paths
 - Task types and workflow
 - Context management guidelines
+- Message format standards (Phase 2+3)
+
+**Version History**:
+- **PjM**: `init-prompt-v0.3.0.txt` (Phase 3 - reviewer integration)
+- **Engineer**: `init-prompt-v0.2.0.txt` (Phase 2+3 - parallel development + review workflow)
+- **Reviewer**: `init-prompt-v0.3.0.txt` (Phase 3 - code review workflow)
+
+**Key Features**:
+- Environment variable substitution via `envsubst`
+- Auto-execution mode with `--dangerously-skip-permissions`
+- Standardized message format: `[Pane X | role] STATUS: message`
 
 ## Testing and Validation
 
@@ -559,14 +608,58 @@ When context usage reaches 95%:
 
 ## Development Phases
 
-### Phase 1 (MVP - Current)
-- 2 sessions: pjm + eng1
-- Basic task management
-- File-based communication
+### Phase 1: MVP (✅ Completed)
+- **Goal**: Basic orchestration system
+- **Features**:
+  - 2 sessions: pjm + eng1
+  - Basic task management (JSON-based)
+  - File-based communication via tmux panes
+  - Git worktree for engineer isolation
+- **Status**: Production ready
+
+### Phase 2: Parallel Development (✅ Completed)
+- **Goal**: Multiple engineers working simultaneously
+- **Features**:
+  - Dynamic engineer scaling (eng1, eng2, engN)
+  - PjM analyzes task complexity and assigns engineers
+  - Design document approval workflow
+  - Parallel implementation with worktree isolation
+  - Progress reporting and monitoring
+- **Status**: Production ready
+
+### Phase 3: Reviewer Integration (✅ Completed)
+- **Goal**: Automated code review workflow
+- **Features**:
+  - Reviewer session with direct worktree access
+  - Review workflow: `in-progress` → `review` → `completed`
+  - Review responses: `APPROVED`, `CHANGES_REQUESTED`, `BLOCKED`
+  - Security and quality checks
+  - Merge after approval with conflict resolution
+- **Status**: Production ready
 
 ### Future Phases
-- Phase 2: Add engN, enable parallel development
-- Phase 3: Add reviewer, implement code review workflow
-- Phase 4: Add docs writer, summarize system documentation
-- Phase 5: Add qa engineer, test system implementation result
-- Phase 6: External integrations (GitHub, ClickUp, Slack)
+
+#### Phase 4: Documentation Writer (Planned)
+- **Goal**: Automated documentation generation
+- **Features**:
+  - Docs writer session
+  - Summarize implementation and generate documentation
+  - Update README, API docs, and architecture diagrams
+  - Integration with existing documentation
+
+#### Phase 5: QA Engineer (Planned)
+- **Goal**: Automated testing and quality assurance
+- **Features**:
+  - QA engineer session
+  - Test implementation results
+  - Generate and execute test cases
+  - Report quality metrics
+  - Integration testing across components
+
+#### Phase 6: External Integrations (Planned)
+- **Goal**: Connect to external tools and services
+- **Features**:
+  - GitHub integration (PR creation, issue tracking)
+  - ClickUp integration (task synchronization)
+  - Slack integration (notifications, status updates)
+  - Webhook support for custom integrations

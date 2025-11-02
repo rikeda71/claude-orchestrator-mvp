@@ -122,7 +122,7 @@ stop_task_session() {
     # セッション停止
     "$TASK_SESSION" kill "$task_id"
 
-    # Worktreeクリーンアップ
+    # Worktreeクリーンアップ（Engineer + Reviewer）
     cleanup_worktrees "$task_id"
 
     log_success "Task session stopped: ${task_id}"
@@ -165,7 +165,7 @@ stop_all_task_sessions() {
             # セッション停止
             "$TASK_SESSION" kill "$task_id"
 
-            # Worktreeクリーンアップ
+            # Worktreeクリーンアップ（Engineer + Reviewer）
             cleanup_worktrees "$task_id"
 
             stopped_count=$((stopped_count + 1))
@@ -212,7 +212,7 @@ EOF
 }
 
 #
-# Worktreeのクリーンアップ（Phase 2: 動的対応）
+# Worktreeのクリーンアップ（Phase 3: Engineer + Reviewer対応）
 #
 cleanup_worktrees() {
     local task_id="$1"
@@ -229,18 +229,20 @@ cleanup_worktrees() {
 
     log_info "Cleaning up worktrees for task: ${task_id}..."
 
+    local original_dir
+    original_dir=$(pwd)
+    cd "${TARGET_PROJECT_PATH}"
+
+    local cleanup_count=0
+
     # NUM_ENGINEERSが未設定の場合、既存worktreeを検出
     local num_engineers="${NUM_ENGINEERS:-}"
     if [[ -z "$num_engineers" ]]; then
         num_engineers=$(find "$WORKTREE_BASE" -maxdepth 1 -type d -name "eng*" 2>/dev/null | wc -l | tr -d ' ')
-        log_debug "Detected ${num_engineers} worktree(s)"
+        log_debug "Detected ${num_engineers} engineer worktree(s)"
     fi
 
-    if [[ $num_engineers -eq 0 ]]; then
-        log_info "No worktrees found to clean up"
-        return 0
-    fi
-
+    # Engineerのworktreeをクリーンアップ
     for ((i=1; i<=num_engineers; i++)); do
         local role="eng${i}"
         local worktree_path="${WORKTREE_BASE}/${role}"
@@ -248,22 +250,21 @@ cleanup_worktrees() {
         if [[ -d "$worktree_path" ]]; then
             log_info "Removing worktree: ${worktree_path}"
 
-            local original_dir
-            original_dir=$(pwd)
-            cd "${TARGET_PROJECT_PATH}"
-
             if git worktree remove "$worktree_path" --force 2>/dev/null; then
                 log_success "Worktree removed: ${worktree_path}"
+                cleanup_count=$((cleanup_count + 1))
             else
                 log_warn "Failed to remove worktree: ${worktree_path}"
                 log_info "You may need to manually remove it with: git worktree remove ${worktree_path}"
             fi
-
-            cd "$original_dir"
         fi
     done
 
-    log_success "Worktree cleanup complete (${num_engineers} worktrees)"
+    # Phase 3: Reviewer は worktree を持たないのでクリーンアップ不要
+
+    cd "$original_dir"
+
+    log_success "Worktree cleanup complete (${cleanup_count} worktree(s) removed)"
 }
 
 #
