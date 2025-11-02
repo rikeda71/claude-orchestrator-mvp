@@ -39,8 +39,8 @@ get_pane_workdir() {
         pjm)
             echo "${ORCHESTRATOR_ROOT}/sessions/pjm"
             ;;
-        eng1|eng2)
-            # エンジニアはworktreeで作業
+        eng*)
+            # エンジニアはworktreeで作業 (eng1, eng2, eng3, ...)
             echo "${WORKTREE_BASE}/${role}"
             ;;
         reviewer)
@@ -56,7 +56,7 @@ get_pane_workdir() {
 }
 
 #
-# タスクセッションの作成
+# タスクセッションの作成（Phase 2: 動的エンジニア数対応）
 #
 create_task_session() {
     local task_id="$1"
@@ -65,8 +65,9 @@ create_task_session() {
     session_name=$(get_task_session_name "$task_id")
     local window_name
     window_name=$(get_task_window_name "$task_id")
+    local num_engineers="${NUM_ENGINEERS:-1}"
 
-    log_info "Creating task session: ${session_name}"
+    log_info "Creating task session: ${session_name} (${num_engineers} engineers)"
 
     # セッションが既に存在する場合はエラー
     if tmux_session_exists "$session_name"; then
@@ -81,10 +82,13 @@ create_task_session() {
     # PjMペイン（ペイン0）の設定
     setup_pjm_pane "$session_name" "$task_id" "$user_instruction"
 
-    # eng1ペイン（ペイン1）の作成
-    create_eng1_pane "$session_name" "$task_id"
+    # エンジニア用worktreeの作成（動的）
+    create_engineer_worktrees "$task_id"
 
-    log_success "Task session setup complete: ${session_name}"
+    # エンジニアペインの作成（動的）
+    create_engineer_panes "$session_name" "$task_id"
+
+    log_success "Task session setup complete: ${session_name} (PjM + ${num_engineers} engineers)"
 }
 
 #
@@ -118,20 +122,18 @@ create_git_worktree() {
     # Target projectのメインブランチを確認
     local main_branch="${TARGET_PROJECT_MAIN_BRANCH:-main}"
 
-    # ブランチ名を生成
+    # ブランチ名を生成（Phase 2: 動的対応）
     local branch_prefix
-    case "$role" in
-        eng1)
-            branch_prefix="${ENG1_BRANCH_PREFIX:-eng1/feature}"
-            ;;
-        eng2)
-            branch_prefix="${ENG2_BRANCH_PREFIX:-eng2/feature}"
-            ;;
-        *)
-            log_error "Unknown role: ${role}"
-            return 1
-            ;;
-    esac
+    if [[ "$role" =~ ^eng[0-9]+$ ]]; then
+        # エンジニアロール（eng1, eng2, eng3, ...）
+        local eng_number="${role#eng}"
+        local pattern="${ENGINEER_BRANCH_PREFIX:-eng__N__}"
+        # __N__をエンジニア番号に置換
+        branch_prefix="${pattern//__N__/${eng_number}}"
+    else
+        log_error "Unknown role: ${role}"
+        return 1
+    fi
 
     local branch_name="${branch_prefix}/${task_id}"
 
@@ -164,44 +166,81 @@ create_git_worktree() {
 }
 
 #
-# eng1ペインの作成
+# エンジニア用worktreeの一括作成（Phase 2: 動的対応）
 #
-create_eng1_pane() {
-    local session_name="$1"
-    local task_id="$2"
-    local eng1_workdir
-    eng1_workdir=$(get_pane_workdir "eng1")
+create_engineer_worktrees() {
+    local task_id="$1"
+    local num_engineers="${NUM_ENGINEERS:-1}"
 
-    log_debug "Creating eng1 pane..."
+    log_info "Creating worktrees for ${num_engineers} engineer(s)..."
 
-    # 右側70%で垂直分割
-    tmux split-window -h -t "$session_name" -p 70
+    for ((i=1; i<=num_engineers; i++)); do
+        local role="eng${i}"
+        local worktree_path="${WORKTREE_BASE}/${role}"
 
-    # eng1ワークツリーディレクトリの確認・作成
-    if [[ ! -d "$eng1_workdir" ]]; then
-        log_info "Creating eng1 worktree for task: ${task_id}..."
+        # worktreeが既に存在する場合はスキップ
+        if [[ -d "$worktree_path" ]]; then
+            log_warn "Worktree already exists: ${worktree_path} (skipping)"
+            continue
+        fi
+
+        log_info "Creating worktree for ${role}: ${worktree_path}"
 
         if [[ -n "${TARGET_PROJECT_PATH:-}" ]] && [[ -d "${TARGET_PROJECT_PATH}" ]]; then
             # Target projectのgit worktreeを作成
-            if ! create_git_worktree "eng1" "$task_id" "$eng1_workdir"; then
-                log_error "Failed to create git worktree, aborting"
+            if ! create_git_worktree "$role" "$task_id" "$worktree_path"; then
+                log_error "Failed to create git worktree for ${role}, aborting"
                 return 1
             fi
         else
             # Standalone mode: 単純なディレクトリ作成
-            mkdir -p "$eng1_workdir"
+            mkdir -p "$worktree_path"
             log_warn "No target project configured, working in standalone mode"
         fi
-    fi
 
-    # 初期化スクリプトのパス
-    local init_script="${ORCHESTRATOR_ROOT}/sessions/engineer/init.sh"
+        log_success "Worktree created: ${worktree_path}"
+    done
 
-    # 初期化スクリプトを実行（1回の実行で環境設定とClaude起動を完了）
-    log_debug "Starting Claude in eng1 pane (auto-execution mode) with init script..."
-    tmux send-keys -t "${session_name}.1" "${init_script} '${task_id}' 'eng1' '${eng1_workdir}' '1' '${ORCHESTRATOR_ROOT}'" C-m
+    log_success "All worktrees created (${num_engineers} engineers)"
+}
 
-    log_debug "eng1 pane created"
+#
+# エンジニアペインの一括作成（Phase 2: 動的対応）
+#
+create_engineer_panes() {
+    local session_name="$1"
+    local task_id="$2"
+    local num_engineers="${NUM_ENGINEERS:-1}"
+
+    log_info "Creating ${num_engineers} engineer pane(s)..."
+
+    for ((i=1; i<=num_engineers; i++)); do
+        local role="eng${i}"
+        local workdir
+        workdir=$(get_pane_workdir "$role")
+
+        log_debug "Creating ${role} pane..."
+
+        # 最初のエンジニアは右70%で水平分割、それ以降は垂直分割
+        if [[ $i -eq 1 ]]; then
+            tmux split-window -h -t "$session_name" -p 70
+        else
+            # 最後のペインを垂直分割
+            local last_pane=$((i - 1))
+            tmux split-window -v -t "${session_name}.${last_pane}"
+        fi
+
+        # 初期化スクリプトのパス
+        local init_script="${ORCHESTRATOR_ROOT}/sessions/engineer/init.sh"
+
+        # 初期化スクリプトを実行
+        log_debug "Starting Claude in ${role} pane (auto-execution mode)..."
+        tmux send-keys -t "${session_name}.${i}" "${init_script} '${task_id}' '${role}' '${workdir}' '${i}' '${ORCHESTRATOR_ROOT}'" C-m
+
+        log_debug "${role} pane created"
+    done
+
+    log_success "All engineer panes created (${num_engineers} engineers)"
 }
 
 #

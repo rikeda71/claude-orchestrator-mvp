@@ -11,6 +11,8 @@
 
 - **2025-11-02**: 初版作成
 - **2025-11-02**: eng2固定→動的エンジニア数指定方式に設計変更
+- **2025-11-02**: タスク分配アルゴリズムの詳細追加（PjM主導型 + 自動割り当て補助）
+- **2025-11-02**: タスク通知機能（notify_engineer）の実装詳細追加
 
 ---
 
@@ -119,27 +121,144 @@ ENGINEER_BRANCH_PREFIX="eng{N}"
 
 ```mermaid
 graph TD
-    A[PjM: タスク作成] --> B{タスク自動割り当て}
-    B -->|eng1に割り当て| C1[eng1: 実装開始]
-    B -->|eng2に割り当て| C2[eng2: 実装開始]
-    B -->|eng3に割り当て| C3[eng3: 実装開始]
-    B -->|...| C4[engN: 実装開始]
+    A[PjM: 要件分析] --> B[PjM: タスク分割]
+    B --> C[PjM: 負荷状況確認]
+    C --> D{PjM: 担当者決定}
 
-    C1 --> E1[eng1: コミット]
-    C2 --> E2[eng2: コミット]
-    C3 --> E3[eng3: コミット]
-    C4 --> E4[engN: コミット]
+    D -->|手動割り当て| E1[PjM: タスク作成+担当者指定]
+    D -->|自動割り当て| E2[PjM: タスク作成→auto-assign]
 
-    E1 --> G{PjM: マージ可否判定}
-    E2 --> G
-    E3 --> G
-    E4 --> G
+    E1 --> F[自動通知: eng{N}ペインへ]
+    E2 --> F
 
-    G -->|コンフリクトなし| H[PjM: masterへマージ]
-    G -->|コンフリクトあり| I[PjM: コンフリクト通知]
-    I --> J[担当エンジニア: コンフリクト解決]
-    J --> G
+    F --> G1[eng1: 実装開始]
+    F --> G2[eng2: 実装開始]
+    F --> G3[eng3: 実装開始]
+    F --> G4[engN: 実装開始]
+
+    G1 --> H1[eng1: コミット]
+    G2 --> H2[eng2: コミット]
+    G3 --> H3[eng3: コミット]
+    G4 --> H4[engN: コミット]
+
+    H1 --> I{PjM: マージ可否判定}
+    H2 --> I
+    H3 --> I
+    H4 --> I
+
+    I -->|コンフリクトなし| J[PjM: masterへマージ]
+    I -->|コンフリクトあり| K[PjM: コンフリクト通知]
+    K --> L[担当eng: コンフリクト解決]
+    L --> I
 ```
+
+### 2.5 タスク分配アルゴリズムの詳細
+
+#### 2.5.1 基本フロー（PjM主導型）⭐ 推奨
+
+**Step 1: タスク分割**
+- PjMが大きな機能要件を分析
+- 実装可能な単位にサブタスクを分割
+- 各サブタスクの依存関係を整理
+
+**Step 2: 負荷状況確認**
+```bash
+../../scripts/core/task-manager.sh list-engineers
+```
+
+出力例:
+```
+Engineer   | Pending    | In Progress
+----------------------------------------
+eng1       | 1          | 1
+eng2       | 0          | 1
+eng3       | 2          | 0
+```
+
+**Step 3: 担当者決定**
+
+PjMが以下を考慮して担当者を決定:
+- ✅ エンジニアの現在の負荷状況
+- ✅ タスクの優先度・緊急度
+- ✅ タスク間の依存関係
+- 🔜 エンジニアのスキルセット（Phase 3以降）
+
+**Step 4: タスク作成と自動通知**
+```bash
+# 担当者を指定してタスク作成
+../../scripts/core/task-manager.sh create feature "Add user auth" eng2 pjm
+
+# → 自動的に eng2 ペインに通知が送信される
+```
+
+**Step 5: エンジニアが実装開始**
+- 割り当てられたタスクの通知を受け取る
+- タスク詳細を確認して実装開始
+
+**メリット**:
+- ✅ PjMがコンテキストを持って判断できる
+- ✅ タスクの依存関係を考慮した割り当て可能
+- ✅ プロジェクト全体の最適化が可能
+
+#### 2.5.2 補助的フロー（自動割り当て）
+
+単純な負荷分散が必要な場合や、大量の独立したタスクを一括割り当てする場合:
+
+```bash
+# タスク作成（担当者未指定）
+../../scripts/core/task-manager.sh create feature "Task description" "" pjm
+
+# 自動割り当て（最も負荷の少ないエンジニアへ）
+../../scripts/core/task-manager.sh auto-assign <task-id>
+```
+
+**自動割り当てアルゴリズム（Phase 2）**:
+1. 全エンジニアの現在のタスク数を取得（pending + in-progress）
+2. 最もタスク数が少ないエンジニアを選択
+3. 同数の場合は番号が若いエンジニアを優先（eng1 > eng2 > ...）
+
+**一括自動割り当ての例**:
+```bash
+# 大量のタスクを一括作成
+for i in {1..10}; do
+    ../../scripts/core/task-manager.sh create feature "Task ${i}" "" pjm
+done
+
+# 一括自動割り当て
+for task_id in $(../../scripts/core/task-manager.sh list pending | awk '{print $1}'); do
+    ../../scripts/core/task-manager.sh auto-assign "$task_id"
+done
+```
+
+**メリット**:
+- ✅ 簡単・高速
+- ✅ 負荷が均等に分散される
+- ✅ 大量タスクの一括処理に便利
+
+**将来の拡張（Phase 3以降）**:
+- 🔜 タスク規模（ストーリーポイント）を考慮
+- 🔜 エンジニアのスキルセットとのマッチング
+- 🔜 タスクの優先度を考慮した割り当て
+
+#### 2.5.3 タスク通知機能
+
+タスクが割り当てられると、自動的に該当エンジニアペインに通知が送信されます。
+
+**通知内容**:
+```
+📋 New task assigned: task-20251102-abc123
+Task Type: feature
+Description: Add user authentication
+Priority: high
+Dependencies: []
+
+Run the following to see details:
+../../scripts/core/task-manager.sh show task-20251102-abc123
+```
+
+**実装方法**:
+- `assign_task()` 関数内で `notify_engineer()` を呼び出し
+- tmux send-keys でメッセージを該当ペインに送信
 
 ## 3. 実装計画
 
@@ -168,6 +287,7 @@ graph TD
    - **タスク分配アルゴリズム**: N人のエンジニアに対する負荷分散
    - **`auto-assign` コマンド**: 最も負荷の少ないエンジニアへ自動割り当て
    - **`list-engineers` コマンド**: 現在のエンジニア一覧と負荷状況表示
+   - **`notify_engineer()` 関数**: タスク割り当て時にエンジニアペインへ自動通知
    - **コンフリクト検出**: 全エンジニアの進行中タスクを横断チェック
 
 5. **`scripts/stop-system.sh`**
@@ -647,7 +767,87 @@ check_potential_conflicts() {
 }
 ```
 
-5. **コマンド追加**:
+5. **タスク通知機能（`notify_engineer()`）**:
+
+```bash
+notify_engineer() {
+    local assignee="${1:-}"
+    local task_id="${2:-}"
+
+    if [[ -z "$assignee" || -z "$task_id" ]]; then
+        log_debug "notify_engineer: missing arguments"
+        return 1
+    fi
+
+    # エンジニアロールでない場合はスキップ
+    if [[ ! "$assignee" =~ ^eng[0-9]+$ ]]; then
+        log_debug "Assignee is not an engineer role: ${assignee}"
+        return 0
+    fi
+
+    # エンジニア番号を抽出（eng1 → 1, eng2 → 2, ...）
+    local eng_number="${assignee#eng}"
+
+    # タスクセッションを検索
+    local session_name
+    session_name=$(tmux list-sessions -F "#{session_name}" 2>/dev/null | grep "claude-task-" | head -1)
+
+    if [[ -z "$session_name" ]]; then
+        log_debug "No task session found, skipping notification"
+        return 0
+    fi
+
+    # ペイン番号（PjMがPane 0、eng1がPane 1、eng2がPane 2、...）
+    local pane_index="$eng_number"
+
+    # ペインが存在するか確認
+    if ! tmux list-panes -t "$session_name" -F "#{pane_index}" 2>/dev/null | grep -q "^${pane_index}$"; then
+        log_debug "Pane ${pane_index} not found in session ${session_name}"
+        return 0
+    fi
+
+    # タスク詳細を取得
+    local task_file
+    task_file=$(find_task_file "$task_id")
+
+    local task_type task_desc
+    task_type=$(jq -r '.type // "unknown"' "$task_file" 2>/dev/null)
+    task_desc=$(jq -r '.description // ""' "$task_file" 2>/dev/null)
+
+    # 通知メッセージを送信
+    tmux send-keys -t "${session_name}.${pane_index}" "" C-m
+    tmux send-keys -t "${session_name}.${pane_index}" "echo ''" C-m
+    tmux send-keys -t "${session_name}.${pane_index}" "echo '📋 New task assigned: ${task_id}'" C-m
+    tmux send-keys -t "${session_name}.${pane_index}" "echo 'Type: ${task_type}'" C-m
+    tmux send-keys -t "${session_name}.${pane_index}" "echo 'Description: ${task_desc}'" C-m
+    tmux send-keys -t "${session_name}.${pane_index}" "echo ''" C-m
+    tmux send-keys -t "${session_name}.${pane_index}" "echo 'Run the following to see details:'" C-m
+    tmux send-keys -t "${session_name}.${pane_index}" "echo '  ../../scripts/core/task-manager.sh show ${task_id}'" C-m
+    tmux send-keys -t "${session_name}.${pane_index}" "echo ''" C-m
+
+    log_success "Notified ${assignee} about task ${task_id}"
+}
+```
+
+6. **`assign_task()` での通知呼び出し**:
+
+既存の `assign_task()` 関数を拡張し、割り当て後に通知を送信:
+
+```bash
+assign_task() {
+    local task_id="${1:-}"
+    local assignee="${2:-}"
+
+    # ... 既存の割り当て処理 ...
+
+    # タスク割り当て成功後、エンジニアへ通知
+    notify_engineer "$assignee" "$task_id"
+
+    log_success "Task ${task_id} assigned to ${assignee}"
+}
+```
+
+7. **コマンド追加**:
 
 ```bash
 main() {
@@ -933,6 +1133,7 @@ cleanup_worktrees() {
 - [ ] 指定された数のエンジニアペインが自動作成される
 - [ ] 各エンジニア用のgit worktreeが自動作成される
 - [ ] 複数エンジニアが同時に異なるタスクを実装できる
+- [ ] タスク割り当て時にエンジニアペインへ自動通知が送信される
 - [ ] タスク自動割り当て機能が動作する（負荷分散）
 - [ ] `list-engineers` コマンドで負荷状況を確認できる
 - [ ] コンフリクト検出機能が全エンジニア横断で動作する
@@ -977,22 +1178,74 @@ Phase 2完了後、Phase 3（レビューワークフロー）に向けて以下
 
 ## 8. 実装例: コマンドフロー
 
-### 8.1 基本的な使用例
+### 8.1 基本的な使用例（PjM主導型）⭐ 推奨
 
 ```bash
 # 1. システム起動（2エンジニア）
 ./scripts/start-system.sh --engineers 2
 
-# 2. タスク作成
+# 2. PjMペインで負荷状況確認
+../../scripts/core/task-manager.sh list-engineers
+# 出力例:
+# Engineer   | Pending    | In Progress
+# ----------------------------------------
+# eng1       | 0          | 0
+# eng2       | 0          | 0
+
+# 3. PjMがタスク分割・割り当て（担当者を指定）
+../../scripts/core/task-manager.sh create feature "Add user auth" eng1 pjm
+# → eng1ペインに自動通知:
+#    📋 New task assigned: task-20251102-abc123
+#    Type: feature
+#    Description: Add user auth
+
+../../scripts/core/task-manager.sh create feature "Add logging system" eng2 pjm
+# → eng2ペインに自動通知
+
+../../scripts/core/task-manager.sh create bug "Fix login bug" eng1 pjm
+# → eng1ペインに自動通知
+
+# 4. 各エンジニアが通知を受け取り、実装開始
+# eng1ペイン: タスク詳細確認
+../../scripts/core/task-manager.sh show task-20251102-abc123
+# → 実装開始
+
+# eng2ペイン: タスク詳細確認
+../../scripts/core/task-manager.sh show task-20251102-def456
+# → 実装開始
+
+# 5. PjMが進捗監視
+../../scripts/core/task-manager.sh list-engineers
+# 出力例:
+# Engineer   | Pending    | In Progress
+# ----------------------------------------
+# eng1       | 1          | 1
+# eng2       | 0          | 1
+
+# 6. システム停止（worktree自動削除）
+./scripts/stop-system.sh
+```
+
+### 8.2 自動割り当ての使用例
+
+```bash
+# 1. システム起動（2エンジニア）
+./scripts/start-system.sh --engineers 2
+
+# 2. タスク作成（担当者未指定）
 ../../scripts/core/task-manager.sh create feature "User auth" "" pjm
 ../../scripts/core/task-manager.sh create feature "Logging system" "" pjm
 ../../scripts/core/task-manager.sh create bug "Fix login bug" "" pjm
 
 # 3. タスク自動割り当て
 ../../scripts/core/task-manager.sh auto-assign task-xxx-001
+# → 最も負荷が少ないeng1に割り当て＆通知
+
 ../../scripts/core/task-manager.sh auto-assign task-xxx-002
+# → eng2に割り当て＆通知
+
 ../../scripts/core/task-manager.sh auto-assign task-xxx-003
-# 期待: eng1に2つ、eng2に1つ自動割り当て
+# → eng1に割り当て＆通知
 
 # 4. エンジニア負荷状況確認
 ../../scripts/core/task-manager.sh list-engineers
@@ -1003,13 +1256,13 @@ Phase 2完了後、Phase 3（レビューワークフロー）に向けて以下
 # eng2       | 1          | 0
 
 # 5. 各エンジニアが実装開始
-# (各ペインで自動的にタスクが通知される)
+# (各ペインで自動的にタスクが通知済み)
 
 # 6. システム停止（worktree自動削除）
 ./scripts/stop-system.sh
 ```
 
-### 8.2 大規模プロジェクト例（5エンジニア）
+### 8.3 大規模プロジェクト例（5エンジニア）
 
 ```bash
 # 5エンジニアで起動

@@ -212,7 +212,7 @@ EOF
 }
 
 #
-# Worktreeのクリーンアップ
+# Worktreeのクリーンアップ（Phase 2: 動的対応）
 #
 cleanup_worktrees() {
     local task_id="$1"
@@ -229,7 +229,20 @@ cleanup_worktrees() {
 
     log_info "Cleaning up worktrees for task: ${task_id}..."
 
-    for role in eng1 eng2; do
+    # NUM_ENGINEERSが未設定の場合、既存worktreeを検出
+    local num_engineers="${NUM_ENGINEERS:-}"
+    if [[ -z "$num_engineers" ]]; then
+        num_engineers=$(find "$WORKTREE_BASE" -maxdepth 1 -type d -name "eng*" 2>/dev/null | wc -l | tr -d ' ')
+        log_debug "Detected ${num_engineers} worktree(s)"
+    fi
+
+    if [[ $num_engineers -eq 0 ]]; then
+        log_info "No worktrees found to clean up"
+        return 0
+    fi
+
+    for ((i=1; i<=num_engineers; i++)); do
+        local role="eng${i}"
         local worktree_path="${WORKTREE_BASE}/${role}"
 
         if [[ -d "$worktree_path" ]]; then
@@ -249,6 +262,8 @@ cleanup_worktrees() {
             cd "$original_dir"
         fi
     done
+
+    log_success "Worktree cleanup complete (${num_engineers} worktrees)"
 }
 
 #

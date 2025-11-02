@@ -60,6 +60,8 @@ check_prerequisites() {
 # ディレクトリ構造の初期化
 #
 init_directories() {
+    local num_engineers="${NUM_ENGINEERS:-1}"
+
     log_info "Initializing directory structure..."
 
     # 必要なディレクトリの作成
@@ -74,14 +76,20 @@ init_directories() {
     ensure_dir "$WORKTREE_BASE"
 
     # セッションディレクトリの作成
-    for role in pjm eng1 eng2 reviewer docs; do
+    # PjM, reviewer, docsは固定
+    for role in pjm reviewer docs; do
         ensure_dir "${ORCHESTRATOR_ROOT}/sessions/${role}"
     done
 
-    # エンジニア用ワークツリーディレクトリ
-    # Note: eng1/eng2ディレクトリはgit worktree addで自動作成されるため、ここでは作成しない
+    # エンジニア用セッションディレクトリ（動的）
+    for ((i=1; i<=num_engineers; i++)); do
+        ensure_dir "${ORCHESTRATOR_ROOT}/sessions/eng${i}"
+    done
 
-    log_success "Directory structure initialized"
+    # エンジニア用ワークツリーディレクトリ
+    # Note: eng{N}ディレクトリはgit worktree addで自動作成されるため、ここでは作成しない
+
+    log_success "Directory structure initialized (${num_engineers} engineers)"
 }
 
 #
@@ -336,10 +344,15 @@ main() {
     local task_id=""
     local auto_attach="true"
     local user_instruction=""
+    local num_engineers="${DEFAULT_ENGINEERS:-1}"
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --engineers)
+                num_engineers="$2"
+                shift 2
+                ;;
             --no-attach)
                 auto_attach="false"
                 shift
@@ -357,6 +370,7 @@ Arguments:
                     指定しない場合はデフォルトタスクを作成
 
 Options:
+  --engineers N         エンジニア数を指定（デフォルト: ${DEFAULT_ENGINEERS:-1}, 最大: ${MAX_ENGINEERS:-10}）
   --no-attach           セッションに自動アタッチしない
   --instruction, -i     PjMへの初期指示（必須）
   --help, -h            このヘルプメッセージを表示
@@ -371,11 +385,17 @@ Description:
   自動的にタスクが進行します。
 
 Examples:
-  # デフォルトタスクで起動
+  # デフォルトタスクで起動（1エンジニア）
   $0 --instruction "Implement user authentication"
+
+  # 2エンジニアで起動
+  $0 --engineers 2 --instruction "Implement user authentication"
 
   # 既存のタスクで起動
   $0 task-001 --instruction "Fix login bug"
+
+  # 3エンジニアで既存タスクを起動
+  $0 task-001 --engineers 3 --instruction "Fix login bug"
 
   # タスク作成後、そのタスクで起動
   ./scripts/core/task-manager.sh create feature "ユーザー認証実装"
@@ -409,6 +429,25 @@ EOF
 
     log_info "=== Claude Orchestrator v0.2.0 System Startup ==="
     log_system "orchestrator" "INFO" "Starting system (v0.2.0 architecture)..."
+
+    # エンジニア数のバリデーション
+    if ! [[ "$num_engineers" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid engineer count: ${num_engineers} (must be a number)"
+        exit 1
+    fi
+
+    if [[ $num_engineers -lt 1 ]]; then
+        log_error "Engineer count must be at least 1"
+        exit 1
+    fi
+
+    if [[ $num_engineers -gt ${MAX_ENGINEERS:-10} ]]; then
+        log_error "Engineer count exceeds maximum (${MAX_ENGINEERS:-10})"
+        exit 1
+    fi
+
+    log_info "Starting system with ${num_engineers} engineer(s)..."
+    export NUM_ENGINEERS="$num_engineers"
 
     # 起動シーケンス
     check_prerequisites
