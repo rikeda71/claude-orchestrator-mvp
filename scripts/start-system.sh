@@ -385,6 +385,7 @@ main() {
     local user_instruction=""
     local num_engineers="${DEFAULT_ENGINEERS:-1}"
     local enable_reviewer="false"
+    local enable_docs="false"
 
     # オプション解析
     while [[ $# -gt 0 ]]; do
@@ -395,6 +396,10 @@ main() {
                 ;;
             --with-reviewer)
                 enable_reviewer="true"
+                shift
+                ;;
+            --with-docs)
+                enable_docs="true"
                 shift
                 ;;
             --no-attach)
@@ -416,6 +421,7 @@ Arguments:
 Options:
   --engineers N         エンジニア数を指定（デフォルト: ${DEFAULT_ENGINEERS:-1}, 最大: ${MAX_ENGINEERS:-10}）
   --with-reviewer       Reviewerセッションを起動（Phase 3機能）
+  --with-docs           Documentation Writerセッションを起動（Phase 4機能）
   --no-attach           セッションに自動アタッチしない
   --instruction, -i     PjMへの初期指示（必須）
   --help, -h            このヘルプメッセージを表示
@@ -494,12 +500,20 @@ EOF
     log_info "Starting system with ${num_engineers} engineer(s)..."
     export NUM_ENGINEERS="$num_engineers"
     export ENABLE_REVIEWER="$enable_reviewer"
+    export ENABLE_DOCS="$enable_docs"
 
     # REVIEW_REQUIRED設定とReviewerフラグの整合性チェック
     if [[ "${REVIEW_REQUIRED:-false}" == "true" ]] && [[ "$enable_reviewer" != "true" ]]; then
         log_warn "REVIEW_REQUIRED=true but --with-reviewer not specified."
         log_warn "Review process will not work correctly."
         log_warn "Consider adding --with-reviewer option."
+    fi
+
+    # DOCS_ENABLED設定とDocsフラグの整合性チェック
+    if [[ "${DOCS_ENABLED:-false}" == "true" ]] && [[ "$enable_docs" != "true" ]]; then
+        log_warn "DOCS_ENABLED=true but --with-docs not specified."
+        log_warn "Documentation generation will not work correctly."
+        log_warn "Consider adding --with-docs option."
     fi
 
     # 起動シーケンス
@@ -525,11 +539,23 @@ EOF
     # タスクセッション起動
     start_task_session "$task_id" "$user_instruction"
 
+    # Reviewer/Docsペイン作成の準備（一度だけsource）
+    if [[ "$enable_reviewer" == "true" ]] || [[ "$enable_docs" == "true" ]]; then
+        # SCRIPT_DIRを保存（task-session.shがSCRIPT_DIRを上書きするため）
+        local original_script_dir="$SCRIPT_DIR"
+        source "${original_script_dir}/core/task-session.sh"
+    fi
+
     # Reviewerペイン作成（--with-reviewerが指定されている場合）
     if [[ "$enable_reviewer" == "true" ]]; then
         log_info "Creating reviewer pane..."
-        source "${SCRIPT_DIR}/core/task-session.sh"
         create_reviewer_pane "$task_id"
+    fi
+
+    # Docsペイン作成（--with-docsが指定されている場合）
+    if [[ "$enable_docs" == "true" ]]; then
+        log_info "Creating docs pane..."
+        create_docs_pane "$task_id"
     fi
 
     # 最終レイアウト調整: PjM 30% 左、Engineers/Reviewer 70% 右

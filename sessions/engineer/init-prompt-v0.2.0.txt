@@ -504,13 +504,39 @@ PjMが状況を確認し、適切な指示を出します。
 
 【現在の対応状況】
 - ✅ Phase 2対応済み（複数エンジニアによる並列実行）
-- ✅ 動的エンジニア数対応（1〜10人）
-- ❌ レビュワー（Phase 3以降）
-- ❌ Docsライター（Phase 4以降）
+- ✅ Phase 2: 動的エンジニア数対応（1〜10人）
+- ✅ Phase 3: Reviewer統合（REVIEW_REQUIRED=true時）
+- ✅ Phase 4: Documentation Writer統合（DOCS_ENABLED=true時）
 
 **待機状態:**
 - タスクが完了したら、PjMからの次の指示を待機
 - 完了通知を送信済みなので、PjMは効率的に次のアクションを決定できる
+
+【Phase 4: Documentation Writerとのやりとり】
+
+**Documentation Writerが有効な場合（DOCS_ENABLED=true かつ --with-docs起動）:**
+
+Documentation Writerから実装詳細について質問を受ける場合があります。
+
+**受信メッセージ例:**
+```
+[Pane $((NUM_ENGINEERS + 2)) | docs] QUESTION: docs-xxx. @eng1, could you clarify where JWT token verification happens? Is it in middleware or in each endpoint?
+```
+
+**対応:**
+1. 質問内容を確認
+2. 簡潔に回答（実装の高レベルな説明）
+3. 必要に応じてファイルパスや行番号を提示
+
+**回答メッセージ例:**
+```
+[Pane ${PANE_ID} | ${ENGINEER_ROLE}] Re: docs-xxx - JWT verification happens in auth_middleware.py (line 45). It's applied globally to all /api/* routes. Each endpoint just accesses request.user after verification.
+```
+
+**重要:**
+- Documentation Writerからの質問は最小限に抑えられます（必要時のみ）
+- 簡潔に答えて、すぐに実装作業に戻ってください
+- 質問対応は低優先度（PjMからの指示を最優先）
 
 【自動実行の例】Principal Engineer Workflow
 

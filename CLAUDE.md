@@ -356,9 +356,7 @@ claude-orchestrator/
 │   ├── core/                   # Core functionality
 │   │   ├── task-manager.sh     # Task management
 │   │   ├── task-session.sh     # Task session creation
-│   │   ├── session-manager.sh  # Session lifecycle
-│   │   ├── pane-manager.sh     # Tmux pane messaging (Phase 2+3)
-│   │   └── messenger.sh        # Legacy messaging
+│   │   ├── pane-manager.sh     # Tmux pane messaging (Phase 2+)
 │   ├── utils/                  # Shared utilities
 │   │   ├── common.sh           # Common functions
 │   │   └── logger.sh           # Logging utilities
@@ -380,8 +378,6 @@ claude-orchestrator/
 │   ├── completed/              # Done tasks
 │   └── reviews/                # Awaiting review (Phase 3)
 ├── communication/               # Inter-session communication
-│   ├── pipes/                  # Named pipes (FIFO) - Legacy
-│   ├── buffers/                # Message buffers - Legacy
 │   └── logs/                   # Session and system logs
 └── docs/                        # Design documents
     ├── 000-design-doc.md       # Original design

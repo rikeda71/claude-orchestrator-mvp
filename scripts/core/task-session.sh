@@ -308,6 +308,83 @@ create_reviewer_pane() {
 }
 
 #
+# Documentation Writerディレクトリの確認（Phase 4）
+#
+ensure_docs_directory() {
+    local docs_dir="${ORCHESTRATOR_ROOT}/sessions/docs"
+
+    if [[ ! -d "$docs_dir" ]]; then
+        log_info "Creating docs session directory: ${docs_dir}"
+        mkdir -p "$docs_dir"
+    fi
+
+    log_debug "Docs directory ready: ${docs_dir}"
+}
+
+#
+# Documentation Writerペインの作成（Phase 4）
+#
+create_docs_pane() {
+    local task_id="$1"
+    local session_name
+    session_name=$(get_task_session_name "$task_id")
+    local num_engineers="${NUM_ENGINEERS:-1}"
+    local enable_reviewer="${ENABLE_REVIEWER:-false}"
+
+    log_info "Creating docs pane..."
+
+    # Docs Writer用ディレクトリを確認（worktreeは作成しない）
+    ensure_docs_directory
+
+    # Docs Writerは最後のペインの下に垂直分割で作成
+    if [[ "$enable_reviewer" == "true" ]]; then
+        # Reviewerペインの下に作成
+        local reviewer_pane=$((num_engineers + 1))
+        tmux split-window -v -t "${session_name}.${reviewer_pane}"
+    else
+        # 最後のエンジニアペインの下に作成
+        local last_engineer_pane="$num_engineers"
+        tmux split-window -v -t "${session_name}.${last_engineer_pane}"
+    fi
+
+    # Docsペイン番号を計算
+    # reviewer有: pjm=0, eng1...engN=1...N, reviewer=N+1, docs=N+2
+    # reviewer無: pjm=0, eng1...engN=1...N, docs=N+1
+    local docs_pane
+    if [[ "$enable_reviewer" == "true" ]]; then
+        docs_pane=$((num_engineers + 2))
+    else
+        docs_pane=$((num_engineers + 1))
+    fi
+
+    local docs_dir
+    docs_dir=$(get_pane_workdir "docs")
+
+    # 初期化スクリプトのパス
+    local init_script="${ORCHESTRATOR_ROOT}/sessions/docs/init.sh"
+
+    # 初期化スクリプトが存在する場合は実行
+    if [[ -f "$init_script" ]]; then
+        log_debug "Starting Claude in docs pane (auto-execution mode)..."
+        tmux send-keys -t "${session_name}.${docs_pane}" "${init_script} '${task_id}' 'docs' '${docs_dir}' '${docs_pane}' '${ORCHESTRATOR_ROOT}'" C-m
+    else
+        log_warn "Docs init script not found: ${init_script}"
+        log_info "Setting up docs pane manually..."
+
+        # 作業ディレクトリへ移動
+        tmux send-keys -t "${session_name}.${docs_pane}" "cd ${docs_dir}" C-m
+
+        # 環境変数設定
+        tmux send-keys -t "${session_name}.${docs_pane}" "export TASK_ID=${task_id}" C-m
+        tmux send-keys -t "${session_name}.${docs_pane}" "export ORCHESTRATOR_ROOT=${ORCHESTRATOR_ROOT}" C-m
+        tmux send-keys -t "${session_name}.${docs_pane}" "export PANE_ID=${docs_pane}" C-m
+        tmux send-keys -t "${session_name}.${docs_pane}" "export ROLE=docs" C-m
+    fi
+
+    log_success "Docs pane created (pane ${docs_pane})"
+}
+
+#
 # タスクセッションの削除
 #
 kill_task_session() {
