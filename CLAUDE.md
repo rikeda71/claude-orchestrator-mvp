@@ -30,11 +30,11 @@ The system uses tmux sessions to manage different Claude Code instances, each pl
 
 ### Role-Based Session Structure
 
-The system operates with 5 distinct roles (Phase 1-3 implemented):
+The system operates with 5 distinct roles (Phase 1-4 implemented):
 - **pjm** (Project Manager): Task creation, assignment, progress monitoring
 - **eng1/eng2/engN** (Engineers): Implementation in isolated git worktrees with parallel development support
 - **reviewer**: Code review and quality assurance (Phase 3)
-- **docs**: Design document creation and maintenance (Future)
+- **docs**: Technical documentation writer (Phase 4)
 - **qa**: Test system implementation result (Future)
 
 ### Key Components
@@ -69,8 +69,11 @@ The system operates with 5 distinct roles (Phase 1-3 implemented):
 # Start the orchestrator system with default settings (1 engineer)
 ./scripts/start-system.sh
 
-# Start with multiple engineers and instruction (Phase 2+3)
+# Start with multiple engineers and instruction (Phase 2+3+4)
 ./scripts/start-system.sh --engineers 3 --instruction "ユーザー管理機能を実装してください"
+
+# Start with reviewer and docs writer (Phase 3+4)
+./scripts/start-system.sh --engineers 2 --with-reviewer --with-docs --instruction "認証機能を実装してください"
 
 # Start with sample tasks
 ./scripts/start-system.sh --with-samples
@@ -364,14 +367,16 @@ claude-orchestrator/
 │   └── stop-system.sh          # System shutdown
 ├── sessions/                    # Session initialization files
 │   ├── pjm/                    # Project manager context
-│   │   └── init-prompt-v0.3.0.txt
+│   │   └── init-prompt-v0.4.0.txt
 │   ├── engineer/               # Engineer context
 │   │   ├── init.sh
 │   │   └── init-prompt-v0.2.0.txt
 │   ├── reviewer/               # Reviewer context (Phase 3)
 │   │   ├── init.sh
 │   │   └── init-prompt-v0.3.0.txt
-│   └── docs/                   # Documentation writer context (Future)
+│   └── docs/                   # Documentation writer context (Phase 4)
+│       ├── init.sh
+│       └── init-prompt-v0.4.0.txt
 ├── tasks/                       # Task management
 │   ├── queue/                  # Pending tasks
 │   ├── in-progress/            # Active tasks
@@ -382,7 +387,8 @@ claude-orchestrator/
 └── docs/                        # Design documents
     ├── 000-design-doc.md       # Original design
     ├── 000-detailed-design.md  # Detailed architecture
-    └── 008-phase3-reviewer-integration.md  # Phase 3 design
+    ├── 008-phase3-reviewer-integration.md  # Phase 3 design
+    └── 009-phase4-docs-writer-integration.md  # Phase 4 design
 
 Target Project Structure (managed by orchestrator):
 TARGET_PROJECT_PATH/
@@ -405,6 +411,7 @@ Task IDs follow the pattern: `{prefix}-{timestamp}-{random}`
 - **pjm/reviewer/docs**: Work in `sessions/{role}/` (orchestrator context)
 - **eng1/eng2/engN**: Work in `TARGET_PROJECT_PATH/.orchestrator-worktrees/{role}/` (target project context)
 - **reviewer**: Accesses engineer worktrees directly at `TARGET_PROJECT_PATH/.orchestrator-worktrees/{eng1,eng2,engN}/` (read-only)
+- **docs**: Accesses engineer worktrees and target project directly for documentation generation (read-only for worktrees, write access to `TARGET_PROJECT_PATH/docs/`)
 
 ### Status Updates with File Movement
 
@@ -423,9 +430,10 @@ Each session has an initialization prompt that defines:
 - Message format standards (Phase 2+3)
 
 **Version History**:
-- **PjM**: `init-prompt-v0.3.0.txt` (Phase 3 - reviewer integration)
+- **PjM**: `init-prompt-v0.4.0.txt` (Phase 4 - docs writer integration with auto-task creation)
 - **Engineer**: `init-prompt-v0.2.0.txt` (Phase 2+3 - parallel development + review workflow)
 - **Reviewer**: `init-prompt-v0.3.0.txt` (Phase 3 - code review workflow)
+- **Docs Writer**: `init-prompt-v0.4.0.txt` (Phase 4 - technical documentation generation)
 
 **Key Features**:
 - Environment variable substitution via `envsubst`
@@ -633,15 +641,17 @@ When context usage reaches 95%:
   - Merge after approval with conflict resolution
 - **Status**: Production ready
 
-### Future Phases
-
-#### Phase 4: Documentation Writer (Planned)
+### Phase 4: Documentation Writer (✅ Completed)
 - **Goal**: Automated documentation generation
 - **Features**:
-  - Docs writer session
-  - Summarize implementation and generate documentation
-  - Update README, API docs, and architecture diagrams
-  - Integration with existing documentation
+  - Docs writer session with direct worktree access
+  - Auto-task creation triggered by completed tasks
+  - Technical documentation generation (API docs, architecture diagrams)
+  - PjM lightweight review workflow
+  - Direct commit to target project documentation
+- **Status**: Production ready
+
+### Future Phases
 
 #### Phase 5: QA Engineer (Planned)
 - **Goal**: Automated testing and quality assurance
